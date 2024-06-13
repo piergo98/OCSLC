@@ -4,7 +4,7 @@ import casadi as ca
 
 # Define the optimization settings
 T = 1
-Np = 5
+Np = 3
 Nx = 2
 Nu = 0
 
@@ -33,6 +33,8 @@ prob.precompute_matrices(x0, Q, R, E)
 end = time.time()
 execution_time = end - start
 print(f"Execution time: {execution_time}")
+# input("Press Enter to continue...")
+
 
 # print(prob.delta)
 ##########################################################################################
@@ -44,42 +46,48 @@ w0 = []
 lbw = []
 ubw = []
 J = 0
-G = []
+g = []
 lbg = []
 ubg = []
 
 # Define the decision variables
 U = ca.symvar(prob.u)
-DELTA = ca.symvar(prob.delta)
-w = ca.vertcat(*U, *DELTA)
+DELTA = prob.delta
+print(f"Delta: {DELTA}")
+input("Press Enter to continue...")
+w = ca.vertcat(U, DELTA)
 
 # Initial guess
 U0 = [0] * (Np*Nu)
 DELTA0 = [0] * Np
 w0 = U0 + DELTA0
 
-# Initial state
-x0 = np.array([0, 0, 0])
+# Initial augmented state
+x0_aug = x0 + [1]
+print(f"Initial augmented state: {x0_aug}")
 
 # Define the cost function
 J = prob.cost_function(R, x0)
+print(f"Cost function: {J(x0_aug, DELTA0)}")
+
+input("Press Enter to continue...")
 
 # Bounds on the decision variables
 lbw = [-1] * (Np*Nu) + [0] * Np
 ubw = [1] * (Np*Nu) + [T] * Np
 
 # Constraints
-G = []
+g = []
 lbg = []
 ubg = []
 # Constraint on the phases duration
-G += [ca.sum1(DELTA)]
+g += [ca.sum1(DELTA)]
 lbg += [T]
 ubg += [T]
 
 # Solve the optimization problem
 # Create an NLP solver
-prob = {'f': J, 'x': ca.vertcat(*w), 'g': ca.vertcat(*G)}
+prob = {'f': J, 'x': ca.vertcat(*w), 'g': ca.vertcat(*g)}
 # NLP solver options
 opts = {'ipopt.max_iter': 5e3, 'ipopt.hsllib': "libhsl.so"} 
 solver = ca.nlpsol('solver', 'ipopt', prob, opts)
@@ -94,4 +102,4 @@ u_opt = opt_sol[:Np*Nu]
 # Extract the optimal phase durations
 delta_opt = opt_sol[Np*Nu:]
 
-print(f"Optimal phase durations: {delta_opt}")
+# print(f"Optimal phase durations: {delta_opt}")
