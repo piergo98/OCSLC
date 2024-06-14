@@ -4,7 +4,7 @@ import casadi as ca
 
 # Define the optimization settings
 T = 1
-Np = 3
+Np = 6
 Nx = 2
 Nu = 0
 
@@ -50,36 +50,49 @@ g = []
 lbg = []
 ubg = []
 
-# Define the decision variables
-U = ca.symvar(prob.u)
-DELTA = prob.delta
-print(f"Delta: {DELTA}")
-input("Press Enter to continue...")
-w = ca.vertcat(U, DELTA)
+# Define the decision variables, their bounds, and the initial guess
+for i in range(Np):
+    if Nu > 0:
+        w += [ca.MX.sym(f"U_{i}", Nu)]
+        U0 = [0] * Nu
+        w0 += [U0]
+        lbw += [-1]
+        ubw += [1]
 
-# Initial guess
-U0 = [0] * (Np*Nu)
-DELTA0 = [0] * Np
-w0 = U0 + DELTA0
+DELTA = ca.MX.sym("DELTA", Np)
+w += [DELTA]
+DELTA0 = [T/Np] * Np
+w0 += DELTA0
+lbw += [0]
+ubw += [T]
+
+# print(f"Decision variables: {w[0]}")
+# print(f"Decision variables length: {len(w)}")
+# print(f"Problem input: {len(prob.u)}")
+
+
+# print(f"Delta: {DELTA}")
+# print(f"Delta_type: {type(DELTA)}")
+# input("Press Enter to continue...")
+
 
 # Initial augmented state
 x0_aug = x0 + [1]
-print(f"Initial augmented state: {x0_aug}")
+# print(f"Initial augmented state: {x0_aug}")
 
 # Define the cost function
-J = prob.cost_function(R, x0)
-print(f"Cost function: {J(x0_aug, DELTA0)}")
+cost = prob.cost_function(R, x0_aug)
 
-input("Press Enter to continue...")
+J = cost(DELTA)
+# print(f"Cost function: {J(x0_aug, DELTA0)}")
+# input("Press Enter to continue...")
 
-# Bounds on the decision variables
-lbw = [-1] * (Np*Nu) + [0] * Np
-ubw = [1] * (Np*Nu) + [T] * Np
 
-# Constraints
+# Define the constraints
 g = []
 lbg = []
 ubg = []
+
 # Constraint on the phases duration
 g += [ca.sum1(DELTA)]
 lbg += [T]
@@ -87,10 +100,10 @@ ubg += [T]
 
 # Solve the optimization problem
 # Create an NLP solver
-prob = {'f': J, 'x': ca.vertcat(*w), 'g': ca.vertcat(*g)}
+problem = {'f': J, 'x': ca.vertcat(*w), 'g': ca.vertcat(*g)}
 # NLP solver options
 opts = {'ipopt.max_iter': 5e3, 'ipopt.hsllib': "libhsl.so"} 
-solver = ca.nlpsol('solver', 'ipopt', prob, opts)
+solver = ca.nlpsol('solver', 'ipopt', problem, opts)
 
 sol = solver(x0=w0, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg)
 
@@ -101,5 +114,12 @@ u_opt = opt_sol[:Np*Nu]
 
 # Extract the optimal phase durations
 delta_opt = opt_sol[Np*Nu:]
+print(f"Optimal phase durations: {delta_opt}")
 
-# print(f"Optimal phase durations: {delta_opt}")
+# Extract the optimal state trajectory
+x_opt = [x0]
+for i in range(1, Np+1):
+    state = ca.Function('x_opt', [], [prob.x[i]])
+    x_opt += [state(opt_sol)]
+    print(type(state(opt_sol)))
+# print(f"Optimal state trajectory: {x_opt[1]}")
