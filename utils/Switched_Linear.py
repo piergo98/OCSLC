@@ -21,8 +21,8 @@ class SwiLin:
             auto        (bool): Flag to set the optimization for autonomous systems
         """
         # Check if number of phases is greater than 1
-        if np < 2:
-            raise ValueError("The number of phases must be greater than 1.")
+        if np < 1:
+            raise ValueError("The number of phases must be greater than 0.")
         self.n = np
         # Check if the number of states is greater than 0
         if nx < 1:
@@ -56,6 +56,8 @@ class SwiLin:
         self.N = []
         self.D = []
         self.G = []
+        self.x_opt = []
+        self.S_num = []
     
     def load_model(self, model) -> None:
         """
@@ -66,14 +68,15 @@ class SwiLin:
         """
         A = []
         B = []
-        for i in range(model['num_modes']):
-            A.append(model['A'][i])
+        for i in range(self.n):
+            id = i % len(model['A'])
+            A.append(model['A'][id])
             # Check if the input matrix is empty
             if model['B']:
-                B.append(model['B'][i])
+                B.append(model['B'][id])
             else:
-                B.append(np.zeros((model['A'][i].shape[0], 1)))
-                
+                B.append(np.zeros((model['A'][id].shape[0], 1)))
+              
         self.A = A
         self.B = B
         
@@ -108,17 +111,26 @@ class SwiLin:
             S = func(t) + func(tf)
             func_args = (t,)
         else:
+            # Determine if the input is symbolic or not
+            is_symbolic = input is not None and input.is_symbolic()
             # Integration for non-autonomous systems or general integrator
-            S = func(t, input) + func(tf, input) if input else func(tf, t) + func(tf, tf)
-            func_args = (t, input) if input else (tf, t)
+            S = func(t, input) + func(tf, input) if is_symbolic else func(tf, t) + func(tf, tf)
+            func_args = (t, input) if is_symbolic else (tf, t)
 
+        S_ = 0
         for k in range(1, steps):
             coefficient = 2 if k % 2 == 0 else 4
             t += h
-            S += func(*func_args) * coefficient
-
+            if is_autonomous:
+                S += func(t) * coefficient
+            else:
+                # Determine if the input is symbolic or not
+                is_symbolic = input is not None and input.is_symbolic()
+                # Integration for non-autonomous systems or general integrator
+                S += func(t, input) * coefficient if is_symbolic else func(tf, t)*coefficient
 
         integral = S * (h / 3)
+        
         return integral
     
     def compute_integral(self, A, B, tmin, tmax):
@@ -144,6 +156,11 @@ class SwiLin:
     
         integral_result = self.integrator(int_function, tmin, tmax)
         
+        # print(f"Integral result: {ca.symvar(integral_result)}")
+        
+        phi_f = ca.Function('phi_f', [*ca.symvar(integral_result)], [integral_result])
+        
+        
         return integral_result
     
     def expm(self, A, delta):
@@ -162,7 +179,7 @@ class SwiLin:
         result = ca.MX.eye(n)   # Initialize result to identity matrix
         
         # Number of terms for the Taylor series expansion
-        num_terms = 50
+        num_terms = 75
         
         from numpy.linalg import matrix_power
         from math import factorial
@@ -171,8 +188,15 @@ class SwiLin:
             term = matrix_power(A, k) * ca.power(delta, k) / factorial(k)
             result = result + term
             # print(result)
+            
+        expm = ca.Function('expm', [*ca.symvar(delta)], [result])
+        
+        # Check if the exponential matrix is correct
+        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
+        # print(f"Matrix exponential: {expm(delta_opt[0])}")
     
         return result
+    
         
     def mat_exp_prop(self, index):
         """
@@ -187,9 +211,8 @@ class SwiLin:
         Hi      (ca.MX): A list of matrices constructed in the loop, based on phi_f_i_ and Ai.
         """        
         # Define the system matrices for the given index
-        id = index % len(self.A)
-        A = self.A[id]
-        B = self.B[id]
+        A = self.A[index]
+        B = self.B[index]
         
         # Extract the state vector
         xi = self.x[index]
@@ -229,7 +252,7 @@ class SwiLin:
         else:
             return Ei, 0, 0
         
-    def transition_matrix(self, phi_a, phi_f=None):
+    def transition_matrix(self, phi_a, phi_f):
         """
         Computes the transition matrix for the given index.
         
@@ -271,9 +294,8 @@ class SwiLin:
         eta = ca.MX.sym('eta')
         
         # Define the system matrices for the given index
-        id = index % len(self.A)
-        A = self.A[id]
-        B = self.B[id]
+        B = self.B[index]
+        A = self.A[index]
         
         # Extract the control input
         ui = self.u[index]
@@ -319,9 +341,8 @@ class SwiLin:
         """
         eta = ca.MX.sym('eta')
         # Define the system matrices for the given index
-        id = index % len(self.A)
-        A = self.A[id]
-        B = self.B[id]
+        A = self.A[index]
+        B = self.B[index]
         
         # Extract the control input
         ui = self.u[index]
@@ -349,8 +370,17 @@ class SwiLin:
         else:
             raise ValueError("The number of controls must be greater than 0.")
         
-        f = ca.mtimes([ca.transpose(phi_t), Q, phi_t])
-        # print(f"f: {ca.symvar(f)}")
+        # Check the transition matrix (DEBUG)
+        # trans = ca.Function('trans', [eta], [phi_t])
+        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
+        # print(f"Transition: {trans(delta_opt[index])}")
+        
+        f = ca.transpose(phi_t) @ Q @ phi_t
+        
+        # Debug the matrix f (DEBUG)
+        # f_num = ca.Function('f_num', [eta], [f])
+        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
+        # print(f"f_num: {f_num(delta_opt[index])}")
         
         if self.Nu == 0:
             f_int = ca.Function('f_int', [eta], [f])
@@ -362,8 +392,16 @@ class SwiLin:
         # Compute the integral of the S matrix
         if self.Nu == 0:
             S_int = self.integrator(f_int, 0, delta_i, 'auto')
+            S_int_num = ca.Function('S_int_num', [self.delta], [S_int])
         else:
             S_int = self.integrator(f_int, 0, delta_i, ui)
+            S_int_num = ca.Function('S_int_num', [self.delta, *self.u], [S_int])
+            
+        # Debug the matrix S_int (DEBUG)
+        # print(f"deltai: {delta_i}")
+        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
+        # delta_opt = [0.2649, 0.7351]
+        # print(f"S_int_num: {S_int_num(delta_opt)}")
         
         phi_i = self.transition_matrix(E, phi_f)
         
@@ -385,9 +423,8 @@ class SwiLin:
         
         """
         # Define the system matrices for the given index
-        id = index % len(self.A)
-        A = self.A[id]
-        B = self.B[id]
+        A = self.A[index]
+        B = self.B[index]
         
         # Extract the control input
         ui = self.u[index]
@@ -448,7 +485,8 @@ class SwiLin:
         
         G = 0
         for i in range(self.n):
-            G += (ca.transpose(self.u[:, i]) @ R @ self.u[:, i]) * self.delta[i]
+            pippo = (ca.transpose(self.u[i]) @ R @ self.u[i]) * self.delta[i]
+            G += pippo
             
         return G
         
@@ -473,11 +511,15 @@ class SwiLin:
         # x0_ = ca.MX.sym('x0', self.Nx + 1)
         
         # Compute the cost function
-        J = sum(x0[i] * self.S[0][i, j] * x0[j] for i in range(self.Nx+1) for j in range(self.Nx+1))
+        # J = sum(x0[i] * self.S[0][i, j] * x0[j] for i in range(self.Nx+1) for j in range(self.Nx+1))
+        J = 0
+        for i in range(self.Nx+1):
+            for j in range(self.Nx+1):
+                J += x0[i] * self.S[0][i, j] * x0[j]
         
         if self.Nu > 0:
             J += self.G_matrix(R)
-            
+          
         # print(f"Control input: {self.u}")
         # print(f"Phase duration: {type(self.delta)}")
         # input("Press Enter to continue...")
@@ -485,9 +527,9 @@ class SwiLin:
         if self.Nu == 0:
             cost = ca.Function('cost', [self.delta], [J])
         else:
-            cost = ca.Function('cost', [self.u, self.delta], [J])
+            cost = ca.Function('cost', [*self.u, self.delta], [J])
             
-        # print(f"Cost function: {J}")
+        # print(f"Cost function: {ca.evalf(J)}")
         
         return cost
         
@@ -578,26 +620,45 @@ class SwiLin:
         for i in range(self.n-1, -1, -1):
             # Compute the S matrix
             S = self.S_matrix(i, Q_, times[i])
+            
+            # Create the S_num function for debugging
+            if self.Nu == 0:
+                S_num = ca.Function('S_num', [self.delta], [S])
+            else:
+                S_num = ca.Function('S_num', [self.delta, *self.u], [S])
+                
             self.S.insert(0, S)
+            self.S_num.insert(0, S_num)
         
         for i in range(self.n):
             # Compute the C matrix
             C = self.C_matrix(i, Q_)
             self.C.append(C)
             
-            if not self.u[i].is_zero():
+            if self.Nu > 0:
                 # Compute the N matrix
                 N = self.N_matrix(i)
                 self.N.append(N)
+    
+    
+    def state_extraction(self, delta_opt, *args):
+        """
+        Extract the optimal values of the state trajectory based on the optimized values of u and delta
+        """    
+        
+        # Check if args is not empty and set the input accordingly
+        u_opt = args[0] if args else None   
+        
+        
+        for i in range(self.n+1):
+            # Autonomous systems case
+            if self.Nu == 0:
+                state = ca.Function('state', [self.delta], [self.x[i]])
+                self.x_opt.append(state(delta_opt).full().flatten())
+                # print(f"State: {self.x_opt}")
             
-            
-        
-        
-        
-    
-    
-    
-    
-    
-    
-    
+            # Non-autonomous systems case
+            else:
+                state = ca.Function('state', [*self.u, self.delta], [self.x[i]])
+                self.x_opt.append(state(*u_opt, delta_opt))
+
