@@ -58,6 +58,7 @@ class SwiLin:
         self.G = []
         self.x_opt = []
         self.S_num = []
+        self.S_int = []
     
     def load_model(self, model) -> None:
         """
@@ -94,7 +95,7 @@ class SwiLin:
             integral    (ca.MX): The result of the integration
         """
         # Number of steps for the integration
-        steps = 100
+        steps = 10
         
         # Check if args is not empty and set the input accordingly
         input = args[0] if args else None
@@ -109,14 +110,12 @@ class SwiLin:
         # Integration for autonomous systems
         if is_autonomous:
             S = func(t) + func(tf)
-            func_args = (t,)
         else:
             # Determine if the input is symbolic or not
             is_symbolic = input is not None and input.is_symbolic()
             # Integration for non-autonomous systems or general integrator
             S = func(t, input) + func(tf, input) if is_symbolic else func(tf, t) + func(tf, tf)
-            func_args = (t, input) if is_symbolic else (tf, t)
-
+    
         S_ = 0
         for k in range(1, steps):
             coefficient = 2 if k % 2 == 0 else 4
@@ -158,7 +157,7 @@ class SwiLin:
         
         # print(f"Integral result: {ca.symvar(integral_result)}")
         
-        phi_f = ca.Function('phi_f', [*ca.symvar(integral_result)], [integral_result])
+        # phi_f = ca.Function('phi_f', [*ca.symvar(integral_result)], [integral_result])
         
         
         return integral_result
@@ -179,7 +178,7 @@ class SwiLin:
         result = ca.MX.eye(n)   # Initialize result to identity matrix
         
         # Number of terms for the Taylor series expansion
-        num_terms = 75
+        num_terms = 10
         
         from numpy.linalg import matrix_power
         from math import factorial
@@ -189,7 +188,7 @@ class SwiLin:
             result = result + term
             # print(result)
             
-        expm = ca.Function('expm', [*ca.symvar(delta)], [result])
+        # expm = ca.Function('expm', [*ca.symvar(delta)], [result])
         
         # Check if the exponential matrix is correct
         # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
@@ -197,7 +196,6 @@ class SwiLin:
     
         return result
     
-        
     def mat_exp_prop(self, index):
         """
         Compute matrix exponential properties.
@@ -393,9 +391,11 @@ class SwiLin:
         if self.Nu == 0:
             S_int = self.integrator(f_int, 0, delta_i, 'auto')
             S_int_num = ca.Function('S_int_num', [self.delta], [S_int])
+            self.S_int.append(S_int_num)
         else:
             S_int = self.integrator(f_int, 0, delta_i, ui)
             S_int_num = ca.Function('S_int_num', [self.delta, *self.u], [S_int])
+            self.S_int.append(S_int_num)
             
         # Debug the matrix S_int (DEBUG)
         # print(f"deltai: {delta_i}")
@@ -649,16 +649,18 @@ class SwiLin:
         # Check if args is not empty and set the input accordingly
         u_opt = args[0] if args else None   
         
-        
+        x_opt = []
         for i in range(self.n+1):
             # Autonomous systems case
             if self.Nu == 0:
                 state = ca.Function('state', [self.delta], [self.x[i]])
-                self.x_opt.append(state(delta_opt).full().flatten())
+                x_opt.append(state(delta_opt))
                 # print(f"State: {self.x_opt}")
             
             # Non-autonomous systems case
             else:
                 state = ca.Function('state', [*self.u, self.delta], [self.x[i]])
-                self.x_opt.append(state(*u_opt, delta_opt))
+                x_opt.append(state(*u_opt, delta_opt))
+                
+        return x_opt
 

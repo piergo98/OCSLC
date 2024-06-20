@@ -3,27 +3,30 @@ import numpy as np
 import casadi as ca
 
 # Define the optimization settings
-T = 1
-Np = 12
+T = 2
+Np = 20
 Nx = 2
 Nu = 1
 
 #  Define the model
 model = {
-    'num_modes': 2,
     'A': [np.array([[-1, 0], [1, 2]]), np.array([[1, 1], [1, -2]])],
-    'B': [np.array([[1], [1]]), np.array([[1], [1]])]
+    # 'A': [np.array([[0.6, 1.2], [-0.8, 3.4]]), np.array([[4, 3], [-1, 0]])],
+    'B': [np.array([[1], [1]]), np.array([[2], [-1]])]
 }
  
 prob = SwiLin(np=Np, nx=Nx, nu=Nu, auto=False)
 prob.load_model(model)
 
-Q = np.eye(Nx)
+Q = 0.5*np.eye(Nx)
 R = 10*np.eye(Nu)
 E = 0 * np.eye(Nx)
 
 # Initial state
 x0 = [1, 1]
+
+# Final state
+xr = [4, 2]
 
 import time
 start = time.time()
@@ -34,6 +37,8 @@ end = time.time()
 execution_time = end - start
 print(f"Execution time: {execution_time}")
 # input("Press Enter to continue...")
+
+
 
 
 ##########################################################################################
@@ -65,19 +70,8 @@ w0 += DELTA0
 lbw += [0] * Np
 ubw += [T] * Np
 
-# print(f"Decision variables: {w[0]}")
-# print(f"Decision variables length: {len(w)}")
-# print(f"Problem input: {len(prob.u)}")
-
-
-# print(f"Delta: {DELTA}")
-# print(f"Delta_type: {type(DELTA)}")
-# input("Press Enter to continue...")
-
-
 # Initial augmented state
 x0_aug = x0 + [1]
-# print(f"Initial augmented state: {x0_aug}")
 
 # Define the cost function
 cost = prob.cost_function(R, x0_aug)
@@ -86,9 +80,6 @@ if prob.Nu == 0:
     J = cost(DELTA)
 else:
     J = cost(*w)
-
-# print(f"Cost function: {J(x0_aug, DELTA0)}")
-# input("Press Enter to continue...")
 
 
 # Define the constraints
@@ -101,11 +92,34 @@ g += [ca.sum1(DELTA)]
 lbg += [T]
 ubg += [T]
 
+# Final state constraint
+xf = prob.state_extraction(DELTA, w[:Np*Nu])[-1]
+g += [xr - xf]
+lbg += [0, 0]
+ubg += [0, 0]
+
 # Solve the optimization problem
 # Create an NLP solver
-problem = {'f': J, 'x': ca.vertcat(*w), 'g': ca.vertcat(*g)}
+problem = {
+    'f': J, 
+    'x': ca.vertcat(*w), 
+    'g': ca.vertcat(*g)
+    }
+
 # NLP solver options
-opts = {'ipopt.max_iter': 5e3, 'ipopt.hessian_approximation': 'limited-memory', 'ipopt.hsllib': "libhsl.so"} 
+opts = {
+    'ipopt.max_iter': 5e3,
+    # 'ipopt.gradient_approximation': 'finite-difference-values',
+    # 'ipopt.hessian_approximation': 'limited-memory', 
+    # 'ipopt.hsllib': "/usr/local/libhsl.so",
+    # 'ipopt.linear_solver': 'mumps',
+    # 'ipopt.mu_strategy': 'adaptive',
+    # 'ipopt.adaptive_mu_globalization': 'kkt-error',
+    # 'ipopt.tol': 1e-6,
+    # 'ipopt.acceptable_tol': 1e-4,
+    # 'ipopt.print_level': 3
+    } 
+
 solver = ca.nlpsol('solver', 'ipopt', problem, opts)
 
 sol = solver(x0=w0, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg)
@@ -120,16 +134,22 @@ if prob.Nu > 0:
 # Extract the optimal phase durations
 delta_opt = opt_sol[Np*Nu:]
 print(f"Optimal phase durations: {delta_opt}")
+print(f"Optimal switching instants: {np.cumsum(delta_opt)}")
 
 # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
 
 for i in range(len(prob.S_num)):
     if prob.Nu > 0:
-        print(f"S matrix: {prob.S_num[i](delta_opt, *u_opt)}")
+        print(f"S matrix: {prob.S_int[i](delta_opt, *u_opt)}")
     else:
-        print(f"S matrix: {prob.S_num[i](delta_opt)}")
+        print(f"S matrix: {prob.S_int[i](delta_opt)}")
 
 # Extract the optimal state trajectory
-prob.state_extraction(delta_opt, u_opt)
+if prob.Nu == 0:
+    x_opt = prob.state_extraction(delta_opt)
+else:
+    x_opt = prob.state_extraction(delta_opt, u_opt)
 
-print(f"Optimal state trajectory: {prob.x_opt}")
+# Create a list with all the optimal state trajectories
+x_opt_num = [x_opt[i].elements() for i in range(len(x_opt))]
+print(f"Optimal state trajectory: {x_opt_num}")
