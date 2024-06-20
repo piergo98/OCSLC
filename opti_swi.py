@@ -1,4 +1,4 @@
-from utils.Switched_Linear import SwiLin
+from ocslc.switched_linear import SwiLin
 import numpy as np
 import casadi as ca
 
