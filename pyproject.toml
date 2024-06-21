@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ocslc"
+version = "0.0.1"
+authors = [
+  { name="Pietro Gori", email="author@example.com" },
+  { name="Davide De Benedittis", email="davide.debenedittis@gmail.com" },
+]
+description = ""
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "casadi",
+    'numpy',
+    'scipy',
+]
+
+[project.urls]
+Homepage = "https://github.com/piergo98/OCSLC"
+Issues = "https://github.com/piergo98/OCSLC/issues"

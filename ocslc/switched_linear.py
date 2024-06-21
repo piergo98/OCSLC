@@ -10,7 +10,7 @@ from scipy.linalg import block_diag
 
 class SwiLin:
     
-    def __init__(self, np, nx, nu, auto=False) -> None:
+    def __init__(self, n_phases, n_states, n_inputs, auto=False) -> None:
         """
         Set up the SwiLin class
         
@@ -21,31 +21,33 @@ class SwiLin:
             auto        (bool): Flag to set the optimization for autonomous systems
         """
         # Check if number of phases is greater than 1
-        if np < 1:
+        if n_phases < 1:
             raise ValueError("The number of phases must be greater than 0.")
-        self.n = np
+        self.n_phases = n_phases
         # Check if the number of states is greater than 0
-        if nx < 1:
+        if n_states < 1:
             raise ValueError("The number of states must be greater than 0.")
-        self.Nx = nx
+        self.n_states = n_states
         # Check if the number of controls is greater than 0 or if the system is autonomous
-        if nu < 0:
+        if n_inputs < 0:
             raise ValueError("The number of controls must be greater than 0.")
-        self.Nu = nu
+        self.n_inputs = n_inputs
         
         # Define the system's variables
         self.x = []
         # Control input defined as a list of symbolic variables
         self.u = []
-        for i in range(self.n):
+        for i in range(self.n_phases):
             if auto:
-                self.Nu = 0
+                self.n_inputs = 0
                 self.u.append(ca.MX.zeros(1))
             else:
-                self.u.append(ca.MX.sym(f'u_{i}', self.Nu))
+                self.u.append(ca.MX.sym(f'u_{i}', self.n_inputs))
+                
+        self.n_opti = self.n_phases*self.n_inputs + self.n_phases
         
         # Phase duration as a symbolic variable 
-        self.delta = ca.MX.sym('delta', self.n)
+        self.delta = ca.MX.sym('delta', self.n_phases)
         
         # Initialize the matrices
         self.E = []
@@ -69,7 +71,7 @@ class SwiLin:
         """
         A = []
         B = []
-        for i in range(self.n):
+        for i in range(self.n_phases):
             id = i % len(model['A'])
             A.append(model['A'][id])
             # Check if the input matrix is empty
@@ -223,7 +225,7 @@ class SwiLin:
         
         # Distinct case for autonomous systems
         # Extract the control input
-        if self.Nu > 0:
+        if self.n_inputs > 0:
             ui = self.u[index]
         
             # Compute the integral of the system matrix and input matrix over the time interval
@@ -236,14 +238,14 @@ class SwiLin:
             self.x.append(Ei @ xi)
         
         # Create the H matrix related to the i-th mode (only for the non-autonomous case)
-        if self.Nu > 0:
+        if self.n_inputs > 0:
             Hi = []
             
             # Fill the Hk matrix with the k-th column of phi_f_i_ (integral term)
-            Hk = ca.MX.sym('Hi', self.Nx + 1, self.Nx + 1)
+            Hk = ca.MX.sym('Hi', self.n_states + 1, self.n_states + 1)
             Hk = 0*Hk
             for k in range(ui.shape[0]):
-                Hk[:self.Nx, self.Nx] =  phi_f_i_[:, k]
+                Hk[:self.n_states, self.n_states] =  phi_f_i_[:, k]
                 Hi.append(Hk)
         
             return Ei, phi_f_i, Hi
@@ -262,16 +264,16 @@ class SwiLin:
         phi (ca.MX): The transition matrix.
         
         """
-        phi = ca.MX.sym('phi', self.Nx+1, self.Nx+1)
+        phi = ca.MX.sym('phi', self.n_states+1, self.n_states+1)
         phi = 0*phi
         
         # Distinct case for autonomous and non-autonomous systems
-        if self.Nu > 0:
-            phi[:self.Nx, :self.Nx] = phi_a
-            phi[:self.Nx, self.Nx] = phi_f
+        if self.n_inputs > 0:
+            phi[:self.n_states, :self.n_states] = phi_a
+            phi[:self.n_states, self.n_states] = phi_f
             phi[-1, -1] = 1
         else:
-            phi[:self.Nx, :self.Nx] = phi_a
+            phi[:self.n_states, :self.n_states] = phi_a
             phi[-1, -1] = 1
         
         return phi
@@ -310,10 +312,10 @@ class SwiLin:
         D = []
         
         # Fill the D matrix with the Dij terms
-        Hij_t = ca.MX.sym('Hij_t', self.Nx + 1, self.Nx + 1)
+        Hij_t = ca.MX.sym('Hij_t', self.n_states + 1, self.n_states + 1)
         Hij_t = 0*Hij_t
         for k in range(ui.shape[0]):
-            Hij_t[:self.Nx, self.Nx] =  phi_f_t[:, k]
+            Hij_t[:self.n_states, self.n_states] =  phi_f_t[:, k]
         
             arg = ca.mtimes([ca.transpose(Hij_t), Q, phi_t]) + ca.mtimes([ca.transpose(phi_t), Q, Hij_t])
         
@@ -361,9 +363,9 @@ class SwiLin:
         phi_f_t = self.compute_integral(A, B, 0, eta)
         # print(f"phi_a_t: {phi_f_t}")
         
-        if self.Nu == 0:
+        if self.n_inputs == 0:
             phi_t = self.transition_matrix(phi_a_t, phi_f_t)
-        elif self.Nu > 0:
+        elif self.n_inputs > 0:
             phi_t = self.transition_matrix(phi_a_t, phi_f_t@ui)
         else:
             raise ValueError("The number of controls must be greater than 0.")
@@ -380,15 +382,15 @@ class SwiLin:
         # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
         # print(f"f_num: {f_num(delta_opt[index])}")
         
-        if self.Nu == 0:
+        if self.n_inputs == 0:
             f_int = ca.Function('f_int', [eta], [f])
-        elif self.Nu > 0:
+        elif self.n_inputs > 0:
             f_int = ca.Function('f_int', [eta, ui], [f])
         else:
             raise ValueError("The number of controls must be greater than 0.")
         
         # Compute the integral of the S matrix
-        if self.Nu == 0:
+        if self.n_inputs == 0:
             S_int = self.integrator(f_int, 0, delta_i, 'auto')
             S_int_num = ca.Function('S_int_num', [self.delta], [S_int])
             self.S_int.append(S_int_num)
@@ -430,11 +432,11 @@ class SwiLin:
         ui = self.u[index]
         
         # Define the M matrix
-        M = ca.MX.sym('M', self.Nx + 1, self.Nx + 1)
+        M = ca.MX.sym('M', self.n_states + 1, self.n_states + 1)
         M = 0*M
         
-        M[:self.Nx, :self.Nx] = A
-        M[:self.Nx, self.Nx] = B @ ui
+        M[:self.n_states, :self.n_states] = A
+        M[:self.n_states, self.n_states] = B @ ui
         
         # Extract the S matrix of the previous iteration
         S_prev = self.S[index+1]
@@ -463,7 +465,7 @@ class SwiLin:
         # Extract the H matrix of the current iteration
         H = self.H[index]
         
-        for j in range(self.Nu):
+        for j in range(self.n_inputs):
             Hij = H[j]
             # Compute N matrix
             Nij = ca.transpose(Hij) @ S_prev + S_prev @ Hij
@@ -484,7 +486,7 @@ class SwiLin:
         """
         
         G = 0
-        for i in range(self.n):
+        for i in range(self.n_phases):
             pippo = (ca.transpose(self.u[i]) @ R @ self.u[i]) * self.delta[i]
             G += pippo
             
@@ -513,18 +515,18 @@ class SwiLin:
         # Compute the cost function
         # J = sum(x0[i] * self.S[0][i, j] * x0[j] for i in range(self.Nx+1) for j in range(self.Nx+1))
         J = 0
-        for i in range(self.Nx+1):
-            for j in range(self.Nx+1):
+        for i in range(self.n_states+1):
+            for j in range(self.n_states+1):
                 J += x0[i] * self.S[0][i, j] * x0[j]
         
-        if self.Nu > 0:
+        if self.n_inputs > 0:
             J += self.G_matrix(R)
           
         # print(f"Control input: {self.u}")
         # print(f"Phase duration: {type(self.delta)}")
         # input("Press Enter to continue...")
         
-        if self.Nu == 0:
+        if self.n_inputs == 0:
             cost = ca.Function('cost', [self.delta], [J])
         else:
             cost = ca.Function('cost', [*self.u, self.delta], [J])
@@ -548,10 +550,10 @@ class SwiLin:
         """
         
         # Create the augmented state vectors
-        x_aug = ca.MX.sym('x_aug', self.Nx + 1)
-        x_next_aug = ca.MX.sym('x_next_aug', self.Nx + 1)
-        x_aug[:self.Nx] = self.x[:, index]
-        x_next_aug[:self.Nx] = self.x[:, index+1]
+        x_aug = ca.MX.sym('x_aug', self.n_states + 1)
+        x_next_aug = ca.MX.sym('x_next_aug', self.n_states + 1)
+        x_aug[:self.n_states] = self.x[:, index]
+        x_next_aug[:self.n_states] = self.x[:, index+1]
         
         # Extract the control input
         ui = self.u[:, index]
@@ -570,7 +572,7 @@ class SwiLin:
         
         # Compute the gradient of the cost function with respect to the control input      
         du = []
-        for j in range(self.Nu):
+        for j in range(self.n_inputs):
             du_j = 2 * ui[j] * R[j, j] * delta_i + ca.mtimes([ca.transpose(x_aug), D, x_aug]) + ca.mtimes([ca.transpose(x_next_aug), N, x_next_aug])
             du.append(du_j)
         
@@ -599,14 +601,14 @@ class SwiLin:
         # Compute the cumulative duration vector for the phases
         times = ca.vertcat(0, ca.cumsum(self.delta))
         
-        for i in range(self.n):
+        for i in range(self.n_phases):
             # Compute the matrix exponential properties
             Ei, phi_f_i, Hi = self.mat_exp_prop(i)
             self.E.append(Ei)
             self.phi_f.append(phi_f_i)
             self.H.append(Hi)
         
-            if self.Nu > 0:
+            if self.n_inputs > 0:
                 # Compute the D matrix
                 D = self.D_matrix(i, Q_, times[i])
                 self.D.append(D)
@@ -617,12 +619,12 @@ class SwiLin:
         
         # Initialize the S matrix with the terminal cost
         self.S.append(E_)
-        for i in range(self.n-1, -1, -1):
+        for i in range(self.n_phases-1, -1, -1):
             # Compute the S matrix
             S = self.S_matrix(i, Q_, times[i])
             
             # Create the S_num function for debugging
-            if self.Nu == 0:
+            if self.n_inputs == 0:
                 S_num = ca.Function('S_num', [self.delta], [S])
             else:
                 S_num = ca.Function('S_num', [self.delta, *self.u], [S])
@@ -630,12 +632,12 @@ class SwiLin:
             self.S.insert(0, S)
             self.S_num.insert(0, S_num)
         
-        for i in range(self.n):
+        for i in range(self.n_phases):
             # Compute the C matrix
             C = self.C_matrix(i, Q_)
             self.C.append(C)
             
-            if self.Nu > 0:
+            if self.n_inputs > 0:
                 # Compute the N matrix
                 N = self.N_matrix(i)
                 self.N.append(N)
@@ -650,9 +652,9 @@ class SwiLin:
         u_opt = args[0] if args else None   
         
         x_opt = []
-        for i in range(self.n+1):
+        for i in range(self.n_phases+1):
             # Autonomous systems case
-            if self.Nu == 0:
+            if self.n_inputs == 0:
                 state = ca.Function('state', [self.delta], [self.x[i]])
                 x_opt.append(state(delta_opt))
                 # print(f"State: {self.x_opt}")
