@@ -98,6 +98,15 @@ class SwitchedLinearMPC(SwiLin):
                 
         opts = {
             'ipopt.max_iter': 5e3,
+            # 'ipopt.gradient_approximation': 'finite-difference-values',
+            # 'ipopt.hessian_approximation': 'limited-memory', 
+            # 'ipopt.hsllib': "/usr/local/libhsl.so",
+            # 'ipopt.linear_solver': 'mumps',
+            # 'ipopt.mu_strategy': 'adaptive',
+            # 'ipopt.adaptive_mu_globalization': 'kkt-error',
+            'ipopt.tol': 1e-6,
+            'ipopt.acceptable_tol': 1e-4,
+            # 'ipopt.print_level': 3
         }
                         
         self.solver = ca.nlpsol('solver', 'ipopt', problem, opts)
@@ -111,11 +120,11 @@ class SwitchedLinearMPC(SwiLin):
         
         sol = r['x'].full().flatten()
         
-        opt_inputs = sol[:self.n_inputs*self.n_phases]
-        opt_deltas = sol[self.n_inputs*self.n_phases:self.n_inputs*self.n_phases + self.n_phases]
+        inputs_opt = sol[:self.n_inputs*self.n_phases]
+        deltas_opt = sol[self.n_inputs*self.n_phases:self.n_inputs*self.n_phases + self.n_phases]
         
-        print(f"Optimal control input: {opt_inputs}")
-        print(f"Optimal phase durations: {opt_deltas}")
-        print(f"Optimal switching instants: {np.cumsum(opt_deltas)}")
+        print(f"Optimal control input: {inputs_opt}")
+        print(f"Optimal phase durations: {deltas_opt}")
+        print(f"Optimal switching instants: {np.cumsum(deltas_opt)}")
 
-        return opt_inputs, opt_deltas
+        return inputs_opt, deltas_opt

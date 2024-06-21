@@ -19,7 +19,9 @@ classifiers = [
 ]
 dependencies = [
     "casadi",
+    "matplotlib",
     'numpy',
+    'PyQt5',
     'scipy',
 ]
 

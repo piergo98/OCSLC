@@ -2,14 +2,14 @@
 # It provides all the tools to instanciate a Switched Linear Optimization problem presented in the TAC paper.
 # Starting from the switched linear system, it provides the cost function and its gradient w.r.t. the control input and the phases duration
 
-import numpy as np
 import casadi as ca
+import matplotlib.pyplot as plt
+import numpy as np
 
 from scipy.linalg import block_diag
 
 
 class SwiLin:
-    
     def __init__(self, n_phases, n_states, n_inputs, auto=False) -> None:
         """
         Set up the SwiLin class
@@ -665,4 +665,56 @@ class SwiLin:
                 x_opt.append(state(*u_opt, delta_opt))
                 
         return x_opt
+    
+    def plot_solution(self, delta_opt, *args):
+        """
+        Plot the optimal state trajectory based on the optimized values of u and delta
+        Plot the optimal control input if the system is non-autonomous
+        """    
+        
+        # Check if args is not empty and set the input accordingly
+        u_opt = args[0] if args else None   
+        
+        # Extract the optimal state trajectory
+        if self.n_inputs == 0:
+            x_opt = self.state_extraction(delta_opt)
+        else:
+            x_opt = self.state_extraction(delta_opt, u_opt)
+        
+        x_opt_num = [x_opt[i].elements() for i in range(len(x_opt))] 
+        
+        # Create the time grid
+        tgrid = []
+        points = 1
+        time = 0
+        next_time = 0
+        for i in range(self.n_phases):
+            next_time = next_time + delta_opt[i]
+            tgrid = np.concatenate((tgrid, np.linspace(time, next_time, points, endpoint=False)))
+            time = time + delta_opt[i]
+        
+        # Plot the state trajectory
+        fig, ax = plt.subplots()
+        ax.plot(x_opt_num)
+        # # Add vertical lines to identify phase changes instants
+        # time = 0
+        # for i in range(self.n_phases):
+        #     time = time + delta_opt[i]
+        #     plt.axvline(x=time, color='k', linestyle='--')
+        ax.set(xlabel='Time', ylabel='State', title='State trajectory')
+        ax.grid()
+        
+        # Plot the control input if the system is non-autonomous
+        if self.n_inputs > 0:
+            fig, ax = plt.subplots()
+            ax.step(tgrid, u_opt)
+            ax.set(xlabel='Time', ylabel='Control input', title='Control input')
+            # Add vertical lines to identify phase changes instants
+            time = 0
+            for i in range(self.n_phases):
+                time = time + delta_opt[i]
+                plt.axvline(x=time, color='k', linestyle='--')
+            ax.grid()
+            
+        plt.show()
 
