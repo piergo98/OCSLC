@@ -6,16 +6,21 @@ from .switched_linear import SwiLin
 
 
 class SwitchedLinearMPC(SwiLin):
+    class Constraint():
+        def __init__(self, g, lbg, ubg, name=None):
+            self.g = g
+            self.lbg = lbg
+            self.ubg = ubg
+            self.name = name
+    
     def __init__(self, model, n_phases, time_horizon, auto=False) -> None:
         self._check_model_structure(model)
         n_states = model['A'][0].shape[0]
         n_inputs = model['B'][0].shape[1]
         
-        super().__init__(n_phases, n_states, n_inputs, auto)
+        super().__init__(n_phases, n_states, n_inputs, time_horizon, auto)
         self.load_model(model)
-        
-        self.time_horizon = time_horizon
-        
+                
         if not auto:
             self.inputs = [ca.MX.sym(f"U_{i}", n_inputs) for i in range(n_phases)]
         else:
@@ -36,9 +41,7 @@ class SwitchedLinearMPC(SwiLin):
         self.ub_opt_var[self.n_inputs*self.n_phases:] = time_horizon
         
         self.cost = 0
-        self.g = []
-        self.lbg = []
-        self.ubg = []
+        self.constraints = []
         
         self._set_constraints_deltas()
         
@@ -70,14 +73,38 @@ class SwitchedLinearMPC(SwiLin):
         self.ub_opt_var[0:self.n_inputs*self.n_phases] = inputs_ub
                 
     def _set_constraints_deltas(self):
-        self.g += [ca.sum1(self.deltas)]
-        self.lbg += [self.time_horizon]
-        self.ubg += [self.time_horizon]
+        self.constraints.append(self.Constraint(
+            g=[ca.sum1(self.deltas)],
+            lbg=np.array([self.time_horizon]),
+            ubg=np.array([self.time_horizon]),
+            name="Total time",
+        ))
         
-    def add_constraints(self, g, lbg, ubg):
-        self.g += g
-        self.lbg += lbg
-        self.ubg += ubg
+    def add_constraint(self, g, lbg, ubg, name=None):
+        if name is not None:
+            for constraint in self.constraints:
+                if constraint.name == name:
+                    raise ValueError(f"Constraint {name} already exists.")
+        
+        self.constraints += [self.Constraint(
+            g=g,
+            lbg=np.array([lbg]).flatten(),
+            ubg=np.array([ubg]).flatten(),
+            name=name,
+        )]
+        
+    def update_constraint(self, name, g=None, lbg=None, ubg=None):
+        for constraint in self.constraints:
+            if constraint.name == name:
+                if g is not None:
+                    constraint.g = g
+                if lbg is not None:
+                    constraint.lbg = np.array([lbg]).flatten()
+                if ubg is not None:
+                    constraint.ubg = np.array([ubg]).flatten()
+                return
+            
+        raise ValueError(f"Constraint {name} not found.")
         
     def set_cost_function(self, R, x0):
         x0_aug = np.concatenate((x0, [1]))
@@ -90,10 +117,14 @@ class SwitchedLinearMPC(SwiLin):
             self.cost = cost(*self.opt_var)
         
     def create_solver(self):
+        g = []
+        for constraint in self.constraints:
+            g += constraint.g
+        
         problem = {
             'f': self.cost,
             'x': ca.vertcat(*self.opt_var),
-            'g': ca.vertcat(*self.g)
+            'g': ca.vertcat(*g)
         }
                 
         opts = {
@@ -104,18 +135,24 @@ class SwitchedLinearMPC(SwiLin):
             # 'ipopt.linear_solver': 'mumps',
             # 'ipopt.mu_strategy': 'adaptive',
             # 'ipopt.adaptive_mu_globalization': 'kkt-error',
-            'ipopt.tol': 1e-6,
-            'ipopt.acceptable_tol': 1e-4,
-            # 'ipopt.print_level': 3
+            # 'ipopt.tol': 1e-6,
+            # 'ipopt.acceptable_tol': 1e-4,
+            'ipopt.print_level': 3
         }
                         
         self.solver = ca.nlpsol('solver', 'ipopt', problem, opts)
         
     def solve(self):
+        lbg = np.empty(0)
+        ubg = np.empty(0)
+        for constraint in self.constraints:
+            lbg = np.concatenate((lbg, constraint.lbg))
+            ubg = np.concatenate((ubg, constraint.ubg))
+        
         r = self.solver(
             x0=self.opt_var_0,
             lbx=self.lb_opt_var.tolist(), ubx=self.ub_opt_var.tolist(),
-            lbg=self.lbg, ubg=self.ubg
+            lbg=lbg, ubg=ubg,
         )
         
         sol = r['x'].full().flatten()
