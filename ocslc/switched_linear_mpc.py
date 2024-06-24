@@ -18,16 +18,16 @@ class SwitchedLinearMPC(SwiLin):
         
         if not auto:
             self.inputs = [ca.MX.sym(f"U_{i}", n_inputs) for i in range(n_phases)]
-            self.inputs_0 = [np.zeros(n_inputs) for _ in range(n_phases)]
         else:
             self.inputs = []
-            self.inputs_0 = [np.zeros(0)]
         
         self.deltas = ca.MX.sym("delta", n_phases)
-        self.deltas_0 = np.ones(n_phases) * time_horizon / n_phases
         
         self.opt_var = self.inputs + [self.deltas]
-        self.opt_var_0 = self.inputs_0 + [self.deltas_0]
+        self.opt_var_0 = np.array(
+            [0] * self.n_inputs * self.n_phases \
+            + [time_horizon / n_phases] * self.n_phases
+        )
         
         self.lb_opt_var = - np.ones(self.n_opti) * np.inf
         self.ub_opt_var =   np.ones(self.n_opti) * np.inf
@@ -113,12 +113,14 @@ class SwitchedLinearMPC(SwiLin):
         
     def solve(self):
         r = self.solver(
-            x0=np.concatenate(self.opt_var_0),
+            x0=self.opt_var_0,
             lbx=self.lb_opt_var.tolist(), ubx=self.ub_opt_var.tolist(),
             lbg=self.lbg, ubg=self.ubg
         )
         
         sol = r['x'].full().flatten()
+        
+        self.opt_var_0 = sol
         
         inputs_opt = sol[:self.n_inputs*self.n_phases]
         deltas_opt = sol[self.n_inputs*self.n_phases:self.n_inputs*self.n_phases + self.n_phases]
@@ -128,3 +130,12 @@ class SwitchedLinearMPC(SwiLin):
         print(f"Optimal switching instants: {np.cumsum(deltas_opt)}")
 
         return inputs_opt, deltas_opt
+    
+    def step(self, R, x0):
+        self._propagate_state(x0)
+        
+        self.set_cost_function(R, x0)
+        
+        self.create_solver()
+        
+        return self.solve()

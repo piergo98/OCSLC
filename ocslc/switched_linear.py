@@ -213,10 +213,7 @@ class SwiLin:
         # Define the system matrices for the given index
         A = self.A[index]
         B = self.B[index]
-        
-        # Extract the state vector
-        xi = self.x[index]
-        
+                
         # Extract the phase duration
         delta_i = self.delta[index]
         
@@ -232,10 +229,6 @@ class SwiLin:
             phi_f_i_ = self.compute_integral(A, B, 0, delta_i)
             
             phi_f_i = phi_f_i_ @ ui
-            
-            self.x.append(Ei @ xi + phi_f_i)
-        else:
-            self.x.append(Ei @ xi)
         
         # Create the H matrix related to the i-th mode (only for the non-autonomous case)
         if self.n_inputs > 0:
@@ -251,6 +244,15 @@ class SwiLin:
             return Ei, phi_f_i, Hi
         else:
             return Ei, 0, 0
+        
+    def _propagate_state(self, x0):
+        self.x = [x0]
+        
+        for i in range(self.n_phases):
+            if self.n_inputs > 0:
+                self.x.append(self.E[i] @ self.x[i] + self.phi_f[i])
+            else:
+                self.x.append(self.E[i] @ self.x[i])
         
     def transition_matrix(self, phi_a, phi_f):
         """
@@ -595,9 +597,6 @@ class SwiLin:
         Q_ = block_diag(Q, 0)
         E_ = block_diag(E, 0)
         
-        # Initialize the state vector
-        self.x.append(x0)
-        
         # Compute the cumulative duration vector for the phases
         times = ca.vertcat(0, ca.cumsum(self.delta))
         
@@ -641,6 +640,9 @@ class SwiLin:
                 # Compute the N matrix
                 N = self.N_matrix(i)
                 self.N.append(N)
+                
+        # Propagate the state using the computed matrices.
+        self._propagate_state(x0)
     
     
     def state_extraction(self, delta_opt, *args):
