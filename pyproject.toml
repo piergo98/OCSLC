@@ -6,8 +6,8 @@ build-backend = "hatchling.build"
 name = "ocslc"
 version = "0.0.1"
 authors = [
-  { name="Pietro Gori", email="author@example.com" },
-  { name="Davide De Benedittis", email="davide.debenedittis@gmail.com" },
+    { name="Pietro Gori", email="author@example.com" },
+    { name="Davide De Benedittis", email="davide.debenedittis@gmail.com" },
 ]
 description = ""
 readme = "README.md"
@@ -28,3 +28,8 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/piergo98/OCSLC"
 Issues = "https://github.com/piergo98/OCSLC/issues"
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
