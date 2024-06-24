@@ -2,6 +2,8 @@
 # It provides all the tools to instanciate a Switched Linear Optimization problem presented in the TAC paper.
 # Starting from the switched linear system, it provides the cost function and its gradient w.r.t. the control input and the phases duration
 
+from math import factorial
+
 import casadi as ca
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,7 +12,7 @@ from scipy.linalg import block_diag
 
 
 class SwiLin:
-    def __init__(self, n_phases, n_states, n_inputs, auto=False) -> None:
+    def __init__(self, n_phases, n_states, n_inputs, time_horizon, auto=False) -> None:
         """
         Set up the SwiLin class
         
@@ -32,6 +34,10 @@ class SwiLin:
         if n_inputs < 0:
             raise ValueError("The number of controls must be greater than 0.")
         self.n_inputs = n_inputs
+        
+        if time_horizon < 0:
+            raise ValueError("The time horizon must be greater than 0.")
+        self.time_horizon = time_horizon
         
         # Define the system's variables
         self.x = []
@@ -180,23 +186,29 @@ class SwiLin:
         result = ca.MX.eye(n)   # Initialize result to identity matrix
         
         # Number of terms for the Taylor series expansion
-        num_terms = 10
-        
-        from numpy.linalg import matrix_power
-        from math import factorial
+        num_terms = self._get_n_terms_expm_approximation()
         
         for k in range(1, num_terms+1):
-            term = matrix_power(A, k) * ca.power(delta, k) / factorial(k)
+            term = np.linalg.matrix_power(A, k) * ca.power(delta, k) / factorial(k)
             result = result + term
-            # print(result)
-            
-        # expm = ca.Function('expm', [*ca.symvar(delta)], [result])
-        
-        # Check if the exponential matrix is correct
-        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
-        # print(f"Matrix exponential: {expm(delta_opt[0])}")
     
         return result
+    
+    def _get_n_terms_expm_approximation(self):
+        threshold = 1e-3
+        
+        n_terms_min = 6
+        n_terms_max = 100
+        
+        err = self.time_horizon**n_terms_min / factorial(n_terms_min)
+        
+        for n_terms in range(n_terms_min+1, n_terms_max):
+            if err < threshold:
+                return n_terms_min
+            
+            err *= self.time_horizon / n_terms
+            
+        return n_terms_max
     
     def mat_exp_prop(self, index):
         """
