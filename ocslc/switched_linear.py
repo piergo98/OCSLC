@@ -506,26 +506,20 @@ class SwiLin:
             
         return G
         
-    def cost_function(self, R, x0):
+    def cost_function(self, R, x0, xf=None, E=None):
         """
         Computes the cost function.
         
         Args:
         R (np.array): The weight matrix.
         x0 (np.array): The initial state.
+        xf (np.array): The final state.
+        E (np.array): The weight matrix for the terminal state.
         
         Returns:
         J (ca.MX): The cost function.
         
         """
-        
-        # print(self.S[0].shape)
-        # print(self.S[0][0,0])
-        # print(self.S[0][1,0].shape)
-        # input("Press Enter to continue...")
-        
-        # x0_ = ca.MX.sym('x0', self.Nx + 1)
-        
         # Compute the cost function
         # J = sum(x0[i] * self.S[0][i, j] * x0[j] for i in range(self.Nx+1) for j in range(self.Nx+1))
         J = 0
@@ -535,6 +529,9 @@ class SwiLin:
         
         if self.n_inputs > 0:
             J += self.G_matrix(R)
+            
+        if xf is not None:
+            J += -2*ca.transpose(self.x[-1]) @ E @ xf
           
         # print(f"Control input: {self.u}")
         # print(f"Phase duration: {type(self.delta)}")
@@ -680,7 +677,7 @@ class SwiLin:
                 
         return x_opt
     
-    def plot_solution(self, delta_opt, *args):
+    def plot_optimal_solution(self, delta_opt, *args):
         """
         Plot the optimal state trajectory based on the optimized values of u and delta
         Plot the optimal control input if the system is non-autonomous
@@ -706,10 +703,11 @@ class SwiLin:
             next_time = next_time + delta_opt[i]
             tgrid = np.concatenate((tgrid, np.linspace(time, next_time, points, endpoint=False)))
             time = time + delta_opt[i]
+        tgrid = np.concatenate((tgrid, [self.time_horizon]))
         
         # Plot the state trajectory
         fig, ax = plt.subplots()
-        ax.plot(x_opt_num)
+        ax.plot(tgrid, np.array(x_opt_num))
         # # Add vertical lines to identify phase changes instants
         # time = 0
         # for i in range(self.n_phases):
@@ -721,7 +719,7 @@ class SwiLin:
         # Plot the control input if the system is non-autonomous
         if self.n_inputs > 0:
             fig, ax = plt.subplots()
-            ax.step(tgrid, u_opt)
+            ax.step(tgrid, np.concatenate((u_opt, u_opt[-self.n_inputs:])), where='post')
             ax.set(xlabel='Time', ylabel='Control input', title='Control input')
             # Add vertical lines to identify phase changes instants
             time = 0

@@ -1,5 +1,6 @@
 import casadi as ca
 import numpy as np
+import matplotlib.pyplot as plt
 
 from .switched_linear import SwiLin
 
@@ -106,10 +107,17 @@ class SwitchedLinearMPC(SwiLin):
             
         raise ValueError(f"Constraint {name} not found.")
         
-    def set_cost_function(self, R, x0):
-        x0_aug = np.concatenate((x0, [1]))
+    def set_cost_function(self, R, x0, xf=None, E=None):
+        x0_aug = np.append(x0, 1)
         
-        cost = self.cost_function(R, x0_aug)
+        if xf is not None and E is not None:
+            cost = self.cost_function(R, x0_aug, xf, E)
+        elif xf is not None and E is None:
+            raise ValueError("xf must be provided with E.")
+        elif xf is None and E is not None:
+            raise ValueError("E must be provided with xf.")
+        else:
+            cost = self.cost_function(R, x0_aug)
                 
         if self.n_inputs == 0:
             self.cost = cost(self.deltas)
@@ -168,10 +176,10 @@ class SwitchedLinearMPC(SwiLin):
 
         return inputs_opt, deltas_opt
     
-    def step(self, R, x0):
+    def step(self, R, x0, xf=None, E=None):
         self._propagate_state(x0)
         
-        self.set_cost_function(R, x0)
+        self.set_cost_function(R, x0, xf, E)
         
         self.create_solver()
         

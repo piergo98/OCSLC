@@ -1,6 +1,2 @@
 __pycache__/
 .venv/
-
-test_expm.py
-tests/
-utils/sym_functions.py
