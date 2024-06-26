@@ -726,17 +726,27 @@ class SwiLin:
             fig, ax = plt.subplots(self.n_inputs, 1)
             u_opt_list = np.reshape(u_opt, (-1, self.n_inputs)).tolist()
             u_opt_list += u_opt_list[-1:]
-            for i in range(self.n_inputs):
-                # Extract the optimal control input at different time instants
-                input = [sublist[i] for sublist in u_opt_list]
-                ax[i].step(tgrid, np.array(input), where='post')
-                ax[i].set(xlabel='Time', ylabel='U_'+str(i))
-                ax[i].grid()
+            if self.n_inputs >= 2:
+                for i in range(self.n_inputs):
+                    # Extract the optimal control input at different time instants
+                    input = [sublist[i] for sublist in u_opt_list]
+                    ax[i].step(tgrid, np.array(input), where='post')
+                    ax[i].set(xlabel='Time', ylabel='U_'+str(i))
+                    ax[i].grid()
+                    # Add vertical lines to identify phase changes instants
+                    time = 0
+                    for j in range(self.n_phases):
+                        time = time + delta_opt[j]
+                        plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)
+            else:
+                ax.step(tgrid, np.array(u_opt_list), where='post')
+                ax.set(xlabel='Time', ylabel='U')
+                ax.grid()
                 # Add vertical lines to identify phase changes instants
                 time = 0
                 for i in range(self.n_phases):
                     time = time + delta_opt[i]
-                    plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)     
+                    plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)   
             
         plt.show()
 
