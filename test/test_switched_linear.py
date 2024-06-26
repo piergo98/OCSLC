@@ -7,7 +7,6 @@ from ocslc.switched_linear_mpc import SwitchedLinearMPC
 
 
 
-
 def test_autonomous_switched_linear():
     model = {
         'A': [np.array([[-1, 0], [1, 2]]), np.array([[1, 1], [1, -2]])],
