@@ -103,6 +103,63 @@ def test_linear_mpc():
     plt.title("State Evolution")
     
     plt.show()
+    
+    
+@pytest.mark.skip()
+def test_linear_mpc_2():
+    model = {
+        'A': [np.array([[-4, 4], [0, 0]]), np.array([[-4, 0], [0, 0]])],
+        'B': [np.array([[0], [0]]), np.array([[0], [0]])]
+    }
+
+    n_states = model['A'][0].shape[0]
+    n_inputs = model['B'][0].shape[1]
+
+    n_phases = 2
+    time_horizon = 5
+
+    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=True)
+    
+    dt = 1e-1
+    n_substeps = 100
+    sys = SystemLTI(model, dt, n_steps=n_substeps)
+
+    Q =  0. * np.eye(n_states)
+    R =  0.  * np.eye(n_inputs)
+    E =  10.  * np.eye(n_states)
+
+    x0 = np.array([0., 1.])
+    
+    xr = np.array([1, 1.])
+    
+    swi_lin_mpc.precompute_matrices(x0, Q, R, E)
+
+    swi_lin_mpc.set_cost_function(R, x0, xr, E)
+    
+    swi_lin_mpc.create_solver()
+    
+    n_steps = 10
+    x = x0.copy()
+    state_hist = [x0]
+    for _ in range(n_steps):
+        x_meas = x
+                
+        inputs_opt, deltas_opt = swi_lin_mpc.step(R, x_meas, xr, E)
+        swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
+        x = sys.evolve_system(x, inputs_opt, deltas_opt)
+        state_hist.append(x.flatten())
+    
+    print(len(state_hist))
+    # Plot the state evolution
+    time_grid = np.linspace(0, n_steps*dt, n_steps+1)
+    plt.plot(time_grid, np.array(state_hist))
+    plt.grid()
+    plt.xlabel('Time [s]')
+    plt.ylabel('States')
+    plt.title("State Evolution")
+    
+    plt.show()
 
 if __name__ == "__main__":
-    test_linear_mpc()
+    # test_linear_mpc()
+    test_linear_mpc_2()
