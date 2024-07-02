@@ -107,15 +107,15 @@ class SwitchedLinearMPC(SwiLin):
             
         raise ValueError(f"Constraint {name} not found.")
         
-    def set_cost_function(self, R, x0, xf=None, E=None):
+    def set_cost_function(self, R, x0, xr=None, E=None):
         x0_aug = np.append(x0, 1)
         
-        if xf is not None and E is not None:
-            cost = self.cost_function(R, x0_aug, xf, E)
-        elif xf is not None and E is None:
-            raise ValueError("xf must be provided with E.")
-        elif xf is None and E is not None:
-            raise ValueError("E must be provided with xf.")
+        if xr is not None and E is not None:
+            cost = self.cost_function(R, x0_aug, xr, E)
+        elif xr is not None and E is None:
+            raise ValueError("xr must be provided with E.")
+        elif xr is None and E is not None:
+            raise ValueError("E must be provided with xr.")
         else:
             cost = self.cost_function(R, x0_aug)
                 
