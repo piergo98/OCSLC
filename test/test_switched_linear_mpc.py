@@ -58,7 +58,7 @@ def test_linear_mpc():
 
     Q =  0. * np.eye(n_states)
     R =  1. * np.eye(n_inputs)
-    E = 10. * np.eye(n_states)
+    E = 1000. * np.eye(n_states)
 
     x0 = np.array([1., 3])
     
@@ -75,11 +75,11 @@ def test_linear_mpc():
     # final_state_ub = xr1
     # swi_lin_mpc.add_constraint(final_state_constr, final_state_lb, final_state_ub, "final_state")
 
-    swi_lin_mpc.set_cost_function(R, x0)
+    swi_lin_mpc.set_cost_function(R, x0, xr1, E)
 
     swi_lin_mpc.create_solver()
     
-    n_steps = 100
+    n_steps = 20
     x = x0.copy()
     state_hist = [x0]
     for i in range(n_steps):
@@ -87,7 +87,7 @@ def test_linear_mpc():
 
         xr = xr1 + (xr2 - xr1) * i/n_steps        
         # swi_lin_mpc.update_constraint("final_state", lbg=xr, ubg=xr)
-        inputs_opt, deltas_opt = swi_lin_mpc.step(R, x_meas)
+        inputs_opt, deltas_opt = swi_lin_mpc.step(R, x_meas, xr, E)
         
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
         state_hist.append(x.flatten())
@@ -108,48 +108,47 @@ def test_linear_mpc():
 @pytest.mark.skip()
 def test_linear_mpc_2():
     model = {
-        'A': [np.array([[-4, 4], [0, 0]]), np.array([[-4, 0], [0, 0]])],
+        'A': [np.array([[-1, 1], [0, 0]]), np.array([[-1, 0], [0, 0]])],
         'B': [np.array([[0], [0]]), np.array([[0], [0]])]
     }
 
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
 
-    n_phases = 2
-    time_horizon = 5
+    n_phases = 12
+    time_horizon = 0.1
 
     swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=True)
     
-    dt = 1e-1
+    dt = 1e-2
     n_substeps = 100
     sys = SystemLTI(model, dt, n_steps=n_substeps)
 
-    Q =  0. * np.eye(n_states)
+    Q =  100. * np.eye(n_states)
     R =  0.  * np.eye(n_inputs)
-    E =  10.  * np.eye(n_states)
+    E =  0.  * np.eye(n_states)
 
     x0 = np.array([0., 1.])
     
-    xr = np.array([1, 1.])
+    xr = np.array([0.5, 1.])
     
-    swi_lin_mpc.precompute_matrices(x0, Q, R, E)
+    swi_lin_mpc.precompute_matrices(x0, Q, R, E, xr)
 
-    swi_lin_mpc.set_cost_function(R, x0, xr, E)
+    swi_lin_mpc.set_cost_function(R, x0)
     
     swi_lin_mpc.create_solver()
     
-    n_steps = 10
+    n_steps = 120
     x = x0.copy()
     state_hist = [x0]
     for _ in range(n_steps):
         x_meas = x
                 
-        inputs_opt, deltas_opt = swi_lin_mpc.step(R, x_meas, xr, E)
-        swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
+        inputs_opt, deltas_opt = swi_lin_mpc.step(R, x_meas)
+        # swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
         state_hist.append(x.flatten())
     
-    print(len(state_hist))
     # Plot the state evolution
     time_grid = np.linspace(0, n_steps*dt, n_steps+1)
     plt.plot(time_grid, np.array(state_hist))
