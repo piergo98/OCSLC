@@ -70,8 +70,9 @@ class SwitchedLinearMPC(SwiLin):
                 raise ValueError("All 'B' matrices are not the same size.")
         
     def set_bounds(self, inputs_lb, inputs_ub):
-        self.lb_opt_var[0:self.n_inputs*self.n_phases] = inputs_lb
-        self.ub_opt_var[0:self.n_inputs*self.n_phases] = inputs_ub
+        for i in range(self.n_inputs):
+            self.lb_opt_var[i:self.n_inputs*self.n_phases:self.n_inputs] = inputs_lb[i]
+            self.ub_opt_var[i:self.n_inputs*self.n_phases:self.n_inputs] = inputs_ub[i]
                 
     def _set_constraints_deltas(self):
         self.constraints.append(self.Constraint(
