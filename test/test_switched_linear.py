@@ -67,7 +67,10 @@ def test_non_autonomous_switched_linear_1():
 
     swi_lin_mpc.precompute_matrices(x0, Q, R, E)
     
-    swi_lin_mpc.set_bounds(-100, 100)
+    inputs_lb = np.array([-100, -100])
+    inputs_ub = np.array([100, 100])
+    
+    swi_lin_mpc.set_bounds(inputs_lb, inputs_ub)
     
     xf = swi_lin_mpc.state_extraction(swi_lin_mpc.deltas, swi_lin_mpc.inputs)[-1]
     final_state_constr = [xf]
