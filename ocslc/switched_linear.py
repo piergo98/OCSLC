@@ -748,7 +748,7 @@ class SwiLin:
         else:
             x_opt = self.state_extraction(delta_opt, u_opt)
         
-        x_opt_num = [x_opt[i].elements() for i in range(len(x_opt))]
+        x_opt_num = np.array([x_opt[i].elements() for i in range(len(x_opt))])
         
         # Create the time grid
         tgrid = []
@@ -763,7 +763,12 @@ class SwiLin:
         
         # Plot the state trajectory
         fig, ax= plt.subplots()
-        ax.plot(tgrid, np.array(x_opt_num))
+        # Loop through each component of x_opt_num
+        for i in range(x_opt_num.shape[1]):
+            ax.plot(tgrid, x_opt_num[:, i], label=f'Component {i+1}')
+
+        # Add a legend
+        ax.legend()
         # Add vertical lines to identify phase changes instants
         time = 0
         for i in range(self.n_phases):
