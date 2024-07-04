@@ -21,11 +21,6 @@ def jumping_leg():
               np.array([[0, 0], [0, 0], [0, 1], [0, 0]]),
               ],
     }
-    
-    print(model['A'][1].shape)
-    print(model['A'][1])
-    print(model['B'][1].shape)
-    print(model['B'][1])
 
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
@@ -59,7 +54,9 @@ def jumping_leg():
         box_ub = h_box
         swi_lin_mpc.add_constraint(box_const, box_lb, box_ub)
     
-    swi_lin_mpc.set_bounds(-100, 100)
+    inputs_lb = np.array([-100, -10])
+    inputs_ub = np.array([100, 10])
+    swi_lin_mpc.set_bounds(inputs_lb, inputs_ub)
 
     swi_lin_mpc.set_cost_function(R, x0)
 
