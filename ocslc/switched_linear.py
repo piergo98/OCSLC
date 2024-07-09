@@ -574,7 +574,7 @@ class SwiLin:
             J += -2 * np.transpose(x0) @ self.Sr[0]
             
         if xr is not None:
-            J += -2 * xr.reshape(1, -1) @ E @ self.x[-1]
+            J += -2 * xr.reshape(1, -1) @ E @ self.x[-1] + xr.reshape(1, -1) @ E @ xr
         
         # print(f"Control input: {self.u}")
         # print(f"Phase duration: {type(self.delta)}")
