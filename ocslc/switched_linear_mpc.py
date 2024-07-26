@@ -23,23 +23,34 @@ class SwitchedLinearMPC(SwiLin):
         self.load_model(model)
                 
         if not auto:
-            self.inputs = [ca.MX.sym(f"U_{i}", n_inputs) for i in range(n_phases)]
+            self.inputs = [ca.SX.sym(f"U_{i}", self.n_inputs) for i in range(self.n_phases)]
         else:
             self.inputs = []
         
-        self.deltas = ca.MX.sym("delta", n_phases)
+        self.deltas = [ca.SX.sym(f"Delta_{i}") for i in range(self.n_phases)]
         
-        self.opt_var = self.inputs + [self.deltas]
-        self.opt_var_0 = np.array(
-            [0] * self.n_inputs * self.n_phases \
-            + [time_horizon / n_phases] * self.n_phases
-        )
+        if self.n_inputs == 0:
+            self.opt_var = self.deltas
+        else:
+            # self.opt_var = self.inputs + self.deltas
+            self.opt_var = [val for pair in zip(self.inputs, self.deltas) for val in pair]
+            
+        # Set the initial guess
+        temp = []
+        for _ in range(self.n_phases):
+            temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
+        
+        self.opt_var_0 = np.array(temp)
         
         self.lb_opt_var = - np.ones(self.n_opti) * np.inf
         self.ub_opt_var =   np.ones(self.n_opti) * np.inf
         
-        self.lb_opt_var[self.n_inputs*self.n_phases:] = 0
-        self.ub_opt_var[self.n_inputs*self.n_phases:] = time_horizon
+        if self.n_inputs != 0:
+            self.lb_opt_var[self.n_inputs::self.n_inputs+self.n_phases] = 0
+            self.ub_opt_var[self.n_inputs::self.n_inputs+self.n_phases] = time_horizon
+        else:
+            self.lb_opt_var[:] = 0
+            self.ub_opt_var[:] = time_horizon
         
         self.cost = 0
         self.constraints = []
@@ -70,17 +81,29 @@ class SwitchedLinearMPC(SwiLin):
                 raise ValueError("All 'B' matrices are not the same size.")
         
     def set_bounds(self, inputs_lb, inputs_ub):
-        if self.n_inputs == 1:
-            self.lb_opt_var[:self.n_inputs*self.n_phases] = inputs_lb
-            self.ub_opt_var[:self.n_inputs*self.n_phases] = inputs_ub
-        else:
-            for i in range(self.n_inputs):
-                self.lb_opt_var[i:self.n_inputs*self.n_phases:self.n_inputs] = inputs_lb[i]
-                self.ub_opt_var[i:self.n_inputs*self.n_phases:self.n_inputs] = inputs_ub[i]
+        """
+        This method sets the lower and upper bounds for the control inputs.
+        
+        Args:
+            inputs_lb (np.array): The lower bounds for the control inputs.
+            inputs_ub (np.array): The upper bounds for the control inputs.
+        """
+        
+        for i in range(0, (self.n_inputs + 1) * self.n_phases, self.n_inputs+1):
+            self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
+            self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
+        
+        # if self.n_inputs == 1:
+        #     self.lb_opt_var[:self.n_inputs*self.n_phases] = inputs_lb
+        #     self.ub_opt_var[:self.n_inputs*self.n_phases] = inputs_ub
+        # else:
+        #     for i in range(self.n_inputs):
+        #         self.lb_opt_var[i:self.n_inputs*self.n_phases:self.n_inputs] = inputs_lb[i]
+        #         self.ub_opt_var[i:self.n_inputs*self.n_phases:self.n_inputs] = inputs_ub[i]
                 
     def _set_constraints_deltas(self):
         self.constraints.append(self.Constraint(
-            g=[ca.sum1(self.deltas)],
+            g=[ca.sum1(ca.vertcat(*self.deltas))],
             lbg=np.array([self.time_horizon]),
             ubg=np.array([self.time_horizon]),
             name="Total time",
@@ -125,9 +148,9 @@ class SwitchedLinearMPC(SwiLin):
             cost = self.cost_function(R, x0_aug)
                 
         if self.n_inputs == 0:
-            self.cost = cost(self.deltas)
+            self.cost = cost(*self.deltas)
         else:
-            self.cost = cost(*self.opt_var)
+            self.cost = cost(*self.inputs, *self.deltas)
         
     def create_solver(self):
         g = []
@@ -150,7 +173,7 @@ class SwitchedLinearMPC(SwiLin):
             # 'ipopt.adaptive_mu_globalization': 'kkt-error',
             # 'ipopt.tol': 1e-6,
             # 'ipopt.acceptable_tol': 1e-4,
-            'ipopt.print_level': 5
+            'ipopt.print_level': 3
         }
                         
         self.solver = ca.nlpsol('solver', 'ipopt', problem, opts)
@@ -172,8 +195,16 @@ class SwitchedLinearMPC(SwiLin):
         
         self.opt_var_0 = sol
         
-        inputs_opt = sol[:self.n_inputs*self.n_phases]
-        deltas_opt = sol[self.n_inputs*self.n_phases:self.n_inputs*self.n_phases + self.n_phases]
+        inputs_opt = []
+        if self.n_inputs != 0:
+            for i in range(0, (self.n_inputs + 1) * self.n_phases, self.n_inputs+1):
+                inputs_opt.extend(sol[i:i+self.n_inputs])
+        else:
+            inputs_opt = []
+            
+        deltas_opt = sol[self.n_inputs::self.n_inputs+1]
+        # inputs_opt = sol[:self.n_inputs*self.n_phases]
+        # deltas_opt = sol[self.n_inputs*self.n_phases:self.n_inputs*self.n_phases + self.n_phases]
         
         print(f"Optimal control input: {inputs_opt}")
         print(f"Optimal phase durations: {deltas_opt}")

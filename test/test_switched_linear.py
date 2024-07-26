@@ -140,7 +140,7 @@ def test_non_autonomous_switched_linear_2():
         inputs_opt,
         np.array([0.1213, 0.0]),
         atol=1e-3,
-    ), "The optimal inputs durations are not correct."
+    ), "The optimal inputs are not correct."
     
     assert np.allclose(
         np.cumsum(deltas_opt),
