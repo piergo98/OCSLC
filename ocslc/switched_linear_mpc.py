@@ -45,12 +45,9 @@ class SwitchedLinearMPC(SwiLin):
         self.lb_opt_var = - np.ones(self.n_opti) * np.inf
         self.ub_opt_var =   np.ones(self.n_opti) * np.inf
         
-        if self.n_inputs != 0:
-            self.lb_opt_var[self.n_inputs::self.n_inputs+self.n_phases] = 0
-            self.ub_opt_var[self.n_inputs::self.n_inputs+self.n_phases] = time_horizon
-        else:
-            self.lb_opt_var[:] = 0
-            self.ub_opt_var[:] = time_horizon
+        
+        self.lb_opt_var[self.n_inputs::self.n_inputs+1] = 0
+        self.ub_opt_var[self.n_inputs::self.n_inputs+1] = time_horizon
         
         self.cost = 0
         self.constraints = []
