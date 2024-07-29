@@ -186,7 +186,7 @@ class SwiLin:
         Returns:
             exp_max (ca.SX): The computed matrix exponential.
         """        
-                
+        
         n = A.shape[0]  # Size of matrix A
         result = ca.SX.eye(n)   # Initialize result to identity matrix
         
