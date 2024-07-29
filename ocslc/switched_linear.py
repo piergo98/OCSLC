@@ -156,15 +156,17 @@ class SwiLin:
         Returns:
         numpy.ndarray: The result of the integral computation.
         """
-        # Define the symbolic variable
-        s = ca.SX.sym('s') 
         
-        # Define the function to be integrate
-        f = self.expm(A, (tmax-s)) @ B
+        # Following "Computing Integrals Involving the Matrix Exponential" by C. F. Van Loan
+        # We compute the system's state evolution using the matrix exponential
         
-        int_function = ca.Function('int', [*ca.symvar(tmax), s], [f])
-    
-        integral_result = self.integrator(int_function, tmin, tmax)
+        dyn1 = np.hstack((A, B))
+        dyn2 = np.zeros((B.shape[1], A.shape[0]+B.shape[1]))
+        dyn = np.vstack((dyn1, dyn2))
+        
+        # Compute the integral as a matrix exponential
+        expm_dyn = self.expm(dyn, tmax-tmin)
+        integral_result = expm_dyn[:A.shape[0], A.shape[0]:]
         
         # print(f"Integral result: {ca.symvar(integral_result)}")
         
