@@ -14,13 +14,16 @@ class SwitchedLinearMPC(SwiLin):
             self.ubg = ubg
             self.name = name
     
-    def __init__(self, model, n_phases, time_horizon, auto=False) -> None:
+    def __init__(self, model, n_phases, time_horizon, auto=False, multiple_shooting=False, x0=None) -> None:
         self._check_model_structure(model)
         n_states = model['A'][0].shape[0]
         n_inputs = model['B'][0].shape[1]
         
         super().__init__(n_phases, n_states, n_inputs, time_horizon, auto)
         self.load_model(model)
+        
+        # Store flags
+        self.multiple_shooting = multiple_shooting
                 
         if not auto:
             self.inputs = [ca.SX.sym(f"U_{i}", self.n_inputs) for i in range(self.n_phases)]
@@ -29,31 +32,75 @@ class SwitchedLinearMPC(SwiLin):
         
         self.deltas = [ca.SX.sym(f"Delta_{i}") for i in range(self.n_phases)]
         
+        self.n_opti = (self.n_inputs + 1) * self.n_phases
+        
+        self.shift = self.n_inputs + 1
+        
+        # Add state variables if multiple shooting is enabled
+        if self.multiple_shooting:
+            self.states = [ca.SX.sym(f"X_{i}", self.n_states) for i in range(self.n_phases+1)]
+            self.n_opti += (self.n_phases + 1) * self.n_states
+            self.shift += self.n_states
+        
+        # Build the optimization vector
         if self.n_inputs == 0:
             self.opt_var = self.deltas
+            if self.multiple_shooting:
+                self.opt_var = [val for pair in zip(self.states, self.deltas) for val in pair]     # To be fixed if N > n_phases
         else:
-            # self.opt_var = self.inputs + self.deltas
             self.opt_var = [val for pair in zip(self.inputs, self.deltas) for val in pair]
-            
-        # Set the initial guess
-        temp = []
-        for _ in range(self.n_phases):
-            temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
+            if self.multiple_shooting:
+                self.opt_var = [val for pair in zip(self.states, self.inputs, self.deltas) for val in pair]     # To be fixed if N > n_phases
+                self.opt_var.append(self.states[-1])
         
-        self.opt_var_0 = np.array(temp)
-        
+        # Set general bounds
         self.lb_opt_var = - np.ones(self.n_opti) * np.inf
         self.ub_opt_var =   np.ones(self.n_opti) * np.inf
         
+        # Set bounds for the phase durations
+        self.lb_opt_var[self.shift-1::self.shift] = 0
+        self.ub_opt_var[self.shift-1::self.shift] = time_horizon
         
-        self.lb_opt_var[self.n_inputs::self.n_inputs+1] = 0
-        self.ub_opt_var[self.n_inputs::self.n_inputs+1] = time_horizon
-        
+        # Initialize cost and constraints
         self.cost = 0
         self.constraints = []
         
+        # Set the total time constraint
         self._set_constraints_deltas()
         
+        # if self.multiple_shooting:
+        #     self.multiple_shooting_constraints(x0)
+        
+        # # Set the initial guess  
+        # self.set_initial_guess(time_horizon, x0) # TO DO
+        
+    def set_initial_guess(self, time_horizon, x0=None):
+        '''
+        This method sets the initial guess for the optimization variables.
+        '''
+        # Check that x0 is provided if multiple shooting is enabled
+        if self.multiple_shooting and x0 is None:
+            raise ValueError("x0 must be provided when multiple shooting is enabled.")
+        
+        u0 = np.zeros(self.n_inputs)
+        delta0 = time_horizon / self.n_phases
+        
+        temp = []
+        if self.multiple_shooting:
+            temp += x0.tolist()
+            # Propagate dynamics from initial state
+            for i in range(self.n_phases):
+                x_next = self.autonomous_evol[i](delta0) @ x0 + self.forced_evol[i](u0, delta0)
+                temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
+                temp += x_next.full().flatten().tolist()
+                
+                x0 = x_next
+        else:
+            for _ in range(self.n_phases):
+                temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
+        
+        self.opt_var_0 = np.array(temp)
+          
     @staticmethod
     def _check_model_structure(model):
         if set(model.keys()) != {'A', 'B'}:
@@ -77,26 +124,35 @@ class SwitchedLinearMPC(SwiLin):
             if B.shape != B_shape:
                 raise ValueError("All 'B' matrices are not the same size.")
         
-    def set_bounds(self, inputs_lb, inputs_ub):
+    def set_bounds(self, inputs_lb, inputs_ub, states_lb=None, states_ub=None):
         """
-        This method sets the lower and upper bounds for the control inputs.
+        This method sets the lower and upper bounds for the control inputs and states.
         
         Args:
             inputs_lb (np.array): The lower bounds for the control inputs.
             inputs_ub (np.array): The upper bounds for the control inputs.
+            states_lb (np.array): The lower bounds for the states. Only required if multiple_shooting is enabled.
+            states_ub (np.array): The upper bounds for the states. Only required if multiple_shooting is enabled.
         """
+        # Check if the states bounds are required
+        if self.multiple_shooting and (states_lb is None or states_ub is None):
+            raise ValueError("States bounds must be provided when multiple shooting is enabled.")    
         
-        for i in range(0, (self.n_inputs + 1) * self.n_phases, self.n_inputs+1):
-            self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
-            self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
-        
-        # if self.n_inputs == 1:
-        #     self.lb_opt_var[:self.n_inputs*self.n_phases] = inputs_lb
-        #     self.ub_opt_var[:self.n_inputs*self.n_phases] = inputs_ub
-        # else:
-        #     for i in range(self.n_inputs):
-        #         self.lb_opt_var[i:self.n_inputs*self.n_phases:self.n_inputs] = inputs_lb[i]
-        #         self.ub_opt_var[i:self.n_inputs*self.n_phases:self.n_inputs] = inputs_ub[i]
+        if self.multiple_shooting:
+            # Set inputs bounds
+            for i in range(self.n_states, self.n_opti, self.shift):
+                self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
+                self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
+            
+            # Set states bounds
+            for i in range(0, self.n_opti, self.shift):
+                self.lb_opt_var[i:i+self.n_states] = states_lb
+                self.ub_opt_var[i:i+self.n_states] = states_ub
+            
+        else:
+            for i in range(0, self.n_opti, self.shift):
+                self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
+                self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
                 
     def _set_constraints_deltas(self):
         self.constraints.append(self.Constraint(
@@ -119,6 +175,26 @@ class SwitchedLinearMPC(SwiLin):
             name=name,
         )]
         
+    def multiple_shooting_constraints(self, x0):
+        '''
+        This method creates the constraints for the multiple shooting approach.
+        '''
+        # Check if x0 is provided when multiple shooting is enabled
+        if x0 is None:
+            raise ValueError("x0 must be provided when multiple shooting is enabled.")
+        
+        # Set bounds for the first state
+        self.lb_opt_var[:self.n_states] = x0
+        self.ub_opt_var[:self.n_states] = x0
+        
+        for i in range(self.n_phases):
+            x = self.states[i]
+            x_next = self.states[i+1]
+            u = self.inputs[i]
+            delta = self.deltas[i]
+            x_next_pred = self.autonomous_evol[i](delta) @ x + self.forced_evol[i](u, delta)
+            self.add_constraint([x_next - x_next_pred], np.zeros(self.n_states), np.zeros(self.n_states))
+            
     def update_constraint(self, name, g=None, lbg=None, ubg=None):
         for constraint in self.constraints:
             if constraint.name == name:
@@ -132,7 +208,10 @@ class SwitchedLinearMPC(SwiLin):
             
         raise ValueError(f"Constraint {name} not found.")
         
-    def set_cost_function(self, R, x0, xr=None, E=None):
+    def set_cost_function_single_shooting(self, R, x0, xr=None, E=None):
+        '''
+        This method sets the cost function for the optimization problem using the single shooting approach.
+        '''
         x0_aug = np.append(x0, 1)
         
         if xr is not None and E is not None:
@@ -149,7 +228,38 @@ class SwitchedLinearMPC(SwiLin):
         else:
             self.cost = cost(*self.inputs, *self.deltas)
         
-    def create_solver(self):
+    def set_cost_function_multiple_shooting(self, Q, R, x_ref=None, E=None):
+        '''
+        This method sets the cost function for the optimization problem using the multiple shooting approach.
+        '''
+        if x_ref is None:
+            x_ref = np.zeros(self.n_states)
+        if E is None:
+            E = np.zeros((self.n_states, self.n_states))
+        
+        L = 0
+        for i in range(self.n_phases):
+            # Get variables
+            x_i = self.states[i]
+            u_i = self.inputs[i]
+            delta_i = self.deltas[i]
+            # Compute ith integral of the objective function using the Euler method
+            L += (ca.transpose(x_i-x_ref) @ Q @ (x_i-x_ref) + ca.transpose(u_i) @ R @ u_i) * delta_i
+        
+        L += ca.transpose(self.states[-1]-x_ref) @ E @ (self.states[-1]-x_ref)
+        
+        self.cost = L
+        
+    def set_cost_function(self, Q, R, x0, xf=None, E=None):
+        '''
+        This method sets the cost function for the optimization problem.
+        '''
+        if self.multiple_shooting: 
+            self.set_cost_function_multiple_shooting(Q, R, xf, E)
+        else:
+            self.set_cost_function_single_shooting(R, x0, xf, E)
+            
+    def create_solver(self, solver='ipopt'):
         g = []
         for constraint in self.constraints:
             g += constraint.g
@@ -159,22 +269,34 @@ class SwitchedLinearMPC(SwiLin):
             'x': ca.vertcat(*self.opt_var),
             'g': ca.vertcat(*g)
         }
-                
-        opts = {
-            'ipopt.max_iter': 5e3,
-            # 'ipopt.gradient_approximation': 'finite-difference-values',
-            # 'ipopt.hessian_approximation': 'limited-memory', 
-            # 'ipopt.hsllib': "/usr/local/libhsl.so",
-            # 'ipopt.linear_solver': 'mumps',
-            # 'ipopt.mu_strategy': 'adaptive',
-            # 'ipopt.adaptive_mu_globalization': 'kkt-error',
-            # 'ipopt.tol': 1e-6,
-            # 'ipopt.acceptable_tol': 1e-4,
-            'ipopt.print_level': 3
-        }
-                        
-        self.solver = ca.nlpsol('solver', 'ipopt', problem, opts)
         
+        if solver == 'ipopt':        
+            opts = {
+                'ipopt.max_iter': 5e3,
+                # 'ipopt.gradient_approximation': 'finite-difference-values',
+                # 'ipopt.hessian_approximation': 'limited-memory', 
+                # 'ipopt.hsllib': "/usr/local/libhsl.so",
+                # 'ipopt.linear_solver': 'mumps',
+                # 'ipopt.mu_strategy': 'adaptive',
+                # 'ipopt.adaptive_mu_globalization': 'kkt-error',
+                # 'ipopt.tol': 1e-6,
+                # 'ipopt.acceptable_tol': 1e-4,
+                'ipopt.print_level': 3
+            }
+                
+        elif solver == 'sqpmethod':
+            opts = {
+                'qpsol': 'qrqp', 
+                'qpsol_options': {'print_iter': False, 'error_on_fail': False}, 
+                'print_time': False,
+            }
+            
+        else:
+            raise ValueError(f"Solver {solver} is not supported.")
+            
+        self.solver = ca.nlpsol('solver', solver, problem, opts)
+            
+              
     def solve(self):
         lbg = np.empty(0)
         ubg = np.empty(0)
@@ -192,16 +314,25 @@ class SwitchedLinearMPC(SwiLin):
         
         self.opt_var_0 = sol
         
+        states_opt = []
         inputs_opt = []
-        if self.n_inputs != 0:
-            for i in range(0, (self.n_inputs + 1) * self.n_phases, self.n_inputs+1):
+        
+        for i in range(0, self.n_opti, self.shift):
+            if self.multiple_shooting:
+                states_opt.extend(sol[i:i+self.n_states])
+                inputs_opt.extend(sol[i+self.n_states:i+self.n_states+self.n_inputs])
+        
+            else:
                 inputs_opt.extend(sol[i:i+self.n_inputs])
-        else:
-            inputs_opt = []
             
-        deltas_opt = sol[self.n_inputs::self.n_inputs+1]
+        deltas_opt = sol[self.shift-1::self.shift]
+        
+        
         # inputs_opt = sol[:self.n_inputs*self.n_phases]
         # deltas_opt = sol[self.n_inputs*self.n_phases:self.n_inputs*self.n_phases + self.n_phases]
+        
+        if self.multiple_shooting:
+            print(f"Optimal states: {states_opt}")
         
         print(f"Optimal control input: {inputs_opt}")
         print(f"Optimal phase durations: {deltas_opt}")
@@ -209,10 +340,10 @@ class SwitchedLinearMPC(SwiLin):
 
         return inputs_opt, deltas_opt
     
-    def step(self, R, x0, xf=None, E=None):
+    def step(self, Q, R, x0, xf=None, E=None):
         self._propagate_state(x0)
         
-        self.set_cost_function(R, x0, xf, E)
+        self.set_cost_function(Q, R, x0, xf, E)
         
         self.create_solver()
         

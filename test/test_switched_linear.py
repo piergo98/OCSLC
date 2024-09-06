@@ -31,7 +31,13 @@ def test_autonomous_switched_linear():
     swi_lin_mpc.precompute_matrices(x0, Q, R, E)
     # print(f"Execution time: {time.time() - start}")
 
-    swi_lin_mpc.set_cost_function(R, x0)
+    if swi_lin_mpc.multiple_shooting:
+        swi_lin_mpc.multiple_shooting_constraints(x0)
+
+    swi_lin_mpc.set_cost_function(Q, R, x0)
+    
+    # Set the initial guess  
+    swi_lin_mpc.set_initial_guess(time_horizon)
 
     swi_lin_mpc.create_solver()
 
@@ -55,31 +61,41 @@ def test_non_autonomous_switched_linear_1():
     n_phases = 1
     time_horizon = 10
 
-    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False)
+    x0 = np.array([0, 0])
+    
+    xr = np.array([1, -3])
+    
+    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=True, x0=x0)
 
     Q = 0. * np.eye(n_states)
     R = 1. * np.eye(n_inputs)
     E = 0. * np.eye(n_states)
 
-    x0 = np.array([0, 0])
-    
-    xr = np.array([1, -3])
 
     swi_lin_mpc.precompute_matrices(x0, Q, R, E)
     
     inputs_lb = np.array([-100, -100])
     inputs_ub = np.array([100, 100])
     
-    swi_lin_mpc.set_bounds(inputs_lb, inputs_ub)
+    states_lb = np.array([-100, -100])
+    states_ub = np.array([100, 100])
+    
+    swi_lin_mpc.set_bounds(inputs_lb, inputs_ub, states_lb, states_ub)
     
     xf = swi_lin_mpc.state_extraction(swi_lin_mpc.deltas, swi_lin_mpc.inputs)[-1]
     final_state_constr = [xf]
     final_state_lb = xr
     final_state_ub = xr
+    
+    if swi_lin_mpc.multiple_shooting:
+            swi_lin_mpc.multiple_shooting_constraints(x0)
 
     swi_lin_mpc.add_constraint(final_state_constr, final_state_lb, final_state_ub)
 
-    swi_lin_mpc.set_cost_function(R, x0)
+    swi_lin_mpc.set_cost_function(Q, R, x0)
+    
+    # Set the initial guess  
+    swi_lin_mpc.set_initial_guess(time_horizon, x0)
 
     swi_lin_mpc.create_solver()
 
@@ -130,7 +146,10 @@ def test_non_autonomous_switched_linear_2():
 
     swi_lin_mpc.add_constraint(final_state_constr, final_state_lb, final_state_ub)
 
-    swi_lin_mpc.set_cost_function(R, x0)
+    swi_lin_mpc.set_cost_function(Q, R, x0)
+    
+    # Set the initial guess  
+    swi_lin_mpc.set_initial_guess(time_horizon, x0)
 
     swi_lin_mpc.create_solver()
 

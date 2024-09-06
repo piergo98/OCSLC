@@ -49,25 +49,31 @@ def test_linear_mpc():
 
     n_phases = 20
     time_horizon = 5
+    
+    x0 = np.array([1., 3])
+    
+    xr1 = np.array([1.,  3])
+    xr2 = np.array([2., 5])
 
-    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False)
+    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=True, x0=x0)
     
     dt = 0.1
     n_substeps = 100
     sys = SystemLTI(model, dt, n_steps=n_substeps)
 
-    Q =  0. * np.eye(n_states)
+    Q =  1000. * np.eye(n_states)
     R =  1. * np.eye(n_inputs)
-    E = 1000. * np.eye(n_states)
-
-    x0 = np.array([1., 3])
-    
-    xr1 = np.array([1.,  3])
-    xr2 = np.array([2., -5])
-    
-    swi_lin_mpc.set_bounds(-10, 10)
+    E = 10. * np.eye(n_states)
     
     swi_lin_mpc.precompute_matrices(x0, Q, R, E)
+    
+    states_lb = np.array([-100, -100])
+    states_ub = np.array([100, 100])
+    
+    swi_lin_mpc.set_bounds(-100, 100, states_lb, states_ub)
+    
+    if swi_lin_mpc.multiple_shooting:
+        swi_lin_mpc.multiple_shooting_constraints(x0)
     
     # xf = swi_lin_mpc.state_extraction(swi_lin_mpc.deltas, swi_lin_mpc.inputs)[-1]
     # final_state_constr = [xf]
@@ -75,8 +81,16 @@ def test_linear_mpc():
     # final_state_ub = xr1
     # swi_lin_mpc.add_constraint(final_state_constr, final_state_lb, final_state_ub, "final_state")
 
-    swi_lin_mpc.set_cost_function(R, x0, xr1, E)
+    swi_lin_mpc.set_cost_function(Q, R, x0, xr2, E)
+    
+    # Set the initial guess  
+    swi_lin_mpc.set_initial_guess(time_horizon, x0)
 
+    # for constr in swi_lin_mpc.constraints:
+    #     print(constr.g)
+    
+    # # print(swi_lin_mpc.ub_opt_var)
+    # input()
     swi_lin_mpc.create_solver()
     
     n_steps = 20
@@ -85,9 +99,10 @@ def test_linear_mpc():
     for i in range(n_steps):
         x_meas = x
 
-        xr = xr1 + (xr2 - xr1) * i/n_steps        
+        # xr = xr1 + (xr2 - xr1) * i/n_steps   
+        xr = xr2     
         # swi_lin_mpc.update_constraint("final_state", lbg=xr, ubg=xr)
-        inputs_opt, deltas_opt = swi_lin_mpc.step(R, x_meas, xr, E)
+        inputs_opt, deltas_opt = swi_lin_mpc.step(Q, R, x_meas, xr, E)
         
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
         state_hist.append(x.flatten())
@@ -117,8 +132,12 @@ def test_linear_mpc_2():
 
     n_phases = 12
     time_horizon = 0.1
+    
+    x0 = np.array([0., 1.])
+    
+    xr = np.array([0.5, 1.])
 
-    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=True)
+    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=True, multiple_shooting=True, x0=x0)
     
     dt = 1e-2
     n_substeps = 100
@@ -127,14 +146,10 @@ def test_linear_mpc_2():
     Q =  100. * np.eye(n_states)
     R =  0.  * np.eye(n_inputs)
     E =  0.  * np.eye(n_states)
-
-    x0 = np.array([0., 1.])
-    
-    xr = np.array([0.5, 1.])
     
     swi_lin_mpc.precompute_matrices(x0, Q, R, E, xr)
 
-    swi_lin_mpc.set_cost_function(R, x0)
+    swi_lin_mpc.set_cost_function(Q, R, x0)
     
     swi_lin_mpc.create_solver()
     
@@ -144,7 +159,7 @@ def test_linear_mpc_2():
     for _ in range(n_steps):
         x_meas = x
                 
-        inputs_opt, deltas_opt = swi_lin_mpc.step(R, x_meas)
+        inputs_opt, deltas_opt = swi_lin_mpc.step(Q, R, x_meas)
         # swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
         state_hist.append(x.flatten())
@@ -157,8 +172,10 @@ def test_linear_mpc_2():
     plt.ylabel('States')
     plt.title("State Evolution")
     
-    plt.show()
+    # plt.show()
 
 if __name__ == "__main__":
+    start = time.time()
     # test_linear_mpc()
     test_linear_mpc_2()
+    print(f"Execution time: {time.time() - start}")

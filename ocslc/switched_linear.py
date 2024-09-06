@@ -40,18 +40,18 @@ class SwiLin:
             raise ValueError("The time horizon must be greater than 0.")
         self.time_horizon = time_horizon
         
+        self.auto = auto
+        
         # Define the system's variables
         self.x = []
         # Control input defined as a list of symbolic variables
         self.u = []
         for i in range(self.n_phases):
-            if auto:
+            if self.auto:
                 self.n_inputs = 0
-                self.u.append(ca.SX.zeros(1))
+                self.u.append(ca.SX.zeros(0))
             else:
                 self.u = [ca.SX.sym(f'u_{i}', self.n_inputs) for i in range(self.n_phases)]
-                
-        self.n_opti = self.n_phases*self.n_inputs + self.n_phases
         
         # Phase duration as symbolic variables
         self.delta = [ca.SX.sym(f'delta_{i}') for i in range(self.n_phases)]
@@ -59,6 +59,8 @@ class SwiLin:
         # Initialize the matrices
         self.E = []
         self.phi_f = []
+        self.autonomous_evol = []
+        self.forced_evol = []
         self.H = []
         self.S = []
         self.Sr = []
@@ -260,11 +262,10 @@ class SwiLin:
         
             return Ei, phi_f_i, Hi
         else:
-            return Ei, 0, 0
+            return Ei, ca.SX.zeros(0), 0
         
     def _propagate_state(self, x0):
         self.x = [x0]
-        
         for i in range(self.n_phases):
             if self.n_inputs > 0:
                 self.x.append(self.E[i] @ self.x[i] + self.phi_f[i])
@@ -569,7 +570,6 @@ class SwiLin:
         if self.n_inputs > 0:
             J += self.G_matrix(R)
             
-        # Check if it's a CasADi MX object
         if self.Sr:
             # x0 = np.reshape(x0, (-1, 1))
             J += -2 * np.transpose(x0) @ self.Sr[0]
@@ -655,13 +655,15 @@ class SwiLin:
             # Compute the matrix exponential properties
             Ei, phi_f_i, Hi = self.mat_exp_prop(i)
             self.E.append(Ei)
+            self.autonomous_evol.append(ca.Function('autonomous_evol', [self.delta[i]], [Ei]) )
             self.phi_f.append(phi_f_i)
+            self.forced_evol.append(ca.Function('forced_evol', [self.u[i], self.delta[i]], [phi_f_i]) )
             self.H.append(Hi)
         
             if self.n_inputs > 0:
                 # Compute the D matrix
-                D = self.D_matrix(i, Q_)
-                self.D.append(D)
+                # D = self.D_matrix(i, Q_)
+                # self.D.append(D)
             
                 # Compute the G matrix
                 G = self.G_matrix(R)
