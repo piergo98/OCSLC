@@ -18,14 +18,14 @@ def test_autonomous_switched_linear():
 
     n_phases = 6
     time_horizon = 1
+    
+    x0 = np.array([1, 1])
 
-    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=True)
+    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=True, multiple_shooting=False, x0=x0)
 
     Q =  1.0 * np.eye(n_states)
     R = 10.  * np.eye(n_inputs)
     E =  0.  * np.eye(n_states)
-
-    x0 = np.array([1, 1])
 
     # start = time.time()
     swi_lin_mpc.precompute_matrices(x0, Q, R, E)
@@ -36,8 +36,13 @@ def test_autonomous_switched_linear():
 
     swi_lin_mpc.set_cost_function(Q, R, x0)
     
+    states_lb = np.array([-100, -100])
+    states_ub = np.array([100, 100])
+    
+    swi_lin_mpc.set_bounds(0, 0, states_lb, states_ub)
+    
     # Set the initial guess  
-    swi_lin_mpc.set_initial_guess(time_horizon)
+    swi_lin_mpc.set_initial_guess(time_horizon, x0)
 
     swi_lin_mpc.create_solver()
 
