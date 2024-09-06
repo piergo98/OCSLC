@@ -355,6 +355,10 @@ class SwitchedLinearMPC(SwiLin):
     def step(self, Q, R, x0, xf=None, E=None):
         self._propagate_state(x0)
         
+        # Set bounds for the first state
+        self.lb_opt_var[:self.n_states] = x0
+        self.ub_opt_var[:self.n_states] = x0
+        
         self.set_cost_function(Q, R, x0, xf, E)
         
         self.create_solver()
