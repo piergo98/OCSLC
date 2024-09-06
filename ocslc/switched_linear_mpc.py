@@ -180,7 +180,7 @@ class SwitchedLinearMPC(SwiLin):
             name=name,
         )]
         
-    def multiple_shooting_constraints(self, x0):
+    def multiple_shooting_constraints(self, x0, displacement=0):
         '''
         This method creates the constraints for the multiple shooting approach.
         '''
@@ -198,9 +198,11 @@ class SwitchedLinearMPC(SwiLin):
             delta = self.deltas[i]
             if self.n_inputs > 0:
                 u = self.inputs[i]
-                x_next_pred = self.autonomous_evol[i](delta) @ x + self.forced_evol[i](u, delta)
+                # Check the index to avoid out of bounds
+                
+                x_next_pred = self.autonomous_evol[(i+displacement)%self.n_modes](delta) @ x + self.forced_evol[(i+displacement)%self.n_modes](u, delta)
             else:
-                x_next_pred = self.autonomous_evol[i](delta) @ x
+                x_next_pred = self.autonomous_evol[(i+displacement)%self.n_modes](delta) @ x
             self.add_constraint([x_next - x_next_pred], np.zeros(self.n_states), np.zeros(self.n_states))
             
     def update_constraint(self, name, g=None, lbg=None, ubg=None):
@@ -271,6 +273,66 @@ class SwitchedLinearMPC(SwiLin):
         else:
             self.set_cost_function_single_shooting(R, x0, xf, E)
             
+    def update_opt_vector(self, x0, inputs_opt, deltas_opt, dt, time_horizon):
+        '''
+        This method updates the optimization vector for the subsequent optimization problem.
+        It updates the phases taking into account the time elapsed.
+        It also updates the control inputs and phases sequence.
+        '''
+        x0_new = x0.copy()
+        u0_new = inputs_opt.copy()
+        deltas0_new = deltas_opt.copy()
+        
+        # Check if the dt is greater than the first n phases duration
+        # i is the index that indicates how many phases have been completed
+        i = np.where(dt < np.cumsum(deltas_opt))[0][0]
+        if i == 0:
+            # update the first phase and add the time to the last phase
+            deltas0_new[0] = deltas_opt[0] - dt
+            deltas0_new[-1] = deltas_opt[-1] + dt
+            
+            # update the optimization vector
+            
+        
+        else:
+            # Shift the phases and update
+            shifted_times = deltas_opt[i:]
+            shifted_times[0] = deltas_opt[i] - (dt - np.cumsum(deltas_opt)[i-1])
+            extention = np.full(i, dt/i)
+            deltas0_new = np.concatenate((shifted_times, extention))
+            
+            # Shift the controls
+            shifted_controls = inputs_opt[i:]
+            extention_controls = np.zeros((i*self.n_inputs))
+            u0_new = np.concatenate((shifted_controls, extention_controls))
+            
+            # Sort the multiple shooting constraint with the new order
+            if self.multiple_shooting:
+                self.multiple_shooting_constraints(x0, displacement=i)
+            
+            # Propagate the states
+            temp = []
+            if self.multiple_shooting:
+                temp += x0.tolist()
+                # Propagate dynamics from initial state
+                for j in range(self.n_phases):
+                    delta0 = deltas0_new[j]
+                    u0 = u0_new[j*self.n_inputs:j*self.n_inputs+self.n_inputs]
+                    if self.n_inputs > 0:
+                        x_next = self.autonomous_evol[j](delta0) @ x0 + self.forced_evol[j](u0, delta0)
+                    else:
+                        x_next = self.autonomous_evol[j](delta0) @ x0
+                    temp += [u0]+ [delta0]
+                    temp += x_next.full().flatten().tolist()
+                    
+                    x0 = x_next
+                    
+            print(f"Optimization vector updated: {temp}")
+            
+            # update the optimization vector
+            self.opt_var_0 = np.array(temp) 
+                    
+            
     def create_solver(self, solver='ipopt'):
         g = []
         for constraint in self.constraints:
@@ -307,8 +369,7 @@ class SwitchedLinearMPC(SwiLin):
             raise ValueError(f"Solver {solver} is not supported.")
             
         self.solver = ca.nlpsol('solver', solver, problem, opts)
-            
-              
+                         
     def solve(self):
         lbg = np.empty(0)
         ubg = np.empty(0)

@@ -94,6 +94,9 @@ class SwiLin:
         self.A = A
         self.B = B
         
+        # Define the number of modes of the system
+        self.n_modes = len(A)
+        
     def integrator(self, func: ca.Function, t0, tf: ca.SX, *args):
         """
         Integrates f(t) between t0 and tf using the given function func using the composite Simpson's 1/3 rule.
