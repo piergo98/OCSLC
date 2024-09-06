@@ -131,7 +131,7 @@ def test_linear_mpc_2():
     n_inputs = model['B'][0].shape[1]
 
     n_phases = 12
-    time_horizon = 0.1
+    time_horizon = 1
     
     x0 = np.array([0., 1.])
     
@@ -148,8 +148,19 @@ def test_linear_mpc_2():
     E =  0.  * np.eye(n_states)
     
     swi_lin_mpc.precompute_matrices(x0, Q, R, E, xr)
+    
+    states_lb = np.array([-100, -100])
+    states_ub = np.array([100, 100])
+    
+    swi_lin_mpc.set_bounds(0, 0, states_lb, states_ub)
+    
+    if swi_lin_mpc.multiple_shooting:
+        swi_lin_mpc.multiple_shooting_constraints(x0)
 
-    swi_lin_mpc.set_cost_function(Q, R, x0)
+    swi_lin_mpc.set_cost_function(Q, R, x0, xr, E)
+    
+    # Set the initial guess  
+    swi_lin_mpc.set_initial_guess(time_horizon, x0)
     
     swi_lin_mpc.create_solver()
     
@@ -159,7 +170,7 @@ def test_linear_mpc_2():
     for _ in range(n_steps):
         x_meas = x
                 
-        inputs_opt, deltas_opt = swi_lin_mpc.step(Q, R, x_meas)
+        inputs_opt, deltas_opt = swi_lin_mpc.step(Q, R, x_meas, xr, E)
         # swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
         state_hist.append(x.flatten())
@@ -172,7 +183,7 @@ def test_linear_mpc_2():
     plt.ylabel('States')
     plt.title("State Evolution")
     
-    # plt.show()
+    plt.show()
 
 if __name__ == "__main__":
     start = time.time()
