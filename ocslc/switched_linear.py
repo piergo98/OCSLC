@@ -266,6 +266,7 @@ class SwiLin:
         
     def _propagate_state(self, x0):
         self.x = [x0]
+        self.f = [x0]
         for i in range(self.n_phases):
             if self.n_inputs > 0:
                 self.x.append(self.E[i] @ self.x[i] + self.phi_f[i])

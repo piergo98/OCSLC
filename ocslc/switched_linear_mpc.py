@@ -47,6 +47,7 @@ class SwitchedLinearMPC(SwiLin):
             self.opt_var = self.deltas
             if self.multiple_shooting:
                 self.opt_var = [val for pair in zip(self.states, self.deltas) for val in pair]     # To be fixed if N > n_phases
+                self.opt_var.append(self.states[-1])
         else:
             self.opt_var = [val for pair in zip(self.inputs, self.deltas) for val in pair]
             if self.multiple_shooting:
@@ -90,7 +91,10 @@ class SwitchedLinearMPC(SwiLin):
             temp += x0.tolist()
             # Propagate dynamics from initial state
             for i in range(self.n_phases):
-                x_next = self.autonomous_evol[i](delta0) @ x0 + self.forced_evol[i](u0, delta0)
+                if self.n_inputs > 0:
+                    x_next = self.autonomous_evol[i](delta0) @ x0 + self.forced_evol[i](u0, delta0)
+                else:
+                    x_next = self.autonomous_evol[i](delta0) @ x0
                 temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
                 temp += x_next.full().flatten().tolist()
                 
@@ -150,9 +154,10 @@ class SwitchedLinearMPC(SwiLin):
                 self.ub_opt_var[i:i+self.n_states] = states_ub
             
         else:
-            for i in range(0, self.n_opti, self.shift):
-                self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
-                self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
+            if self.n_inputs > 0:
+                for i in range(0, self.n_opti, self.shift):
+                    self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
+                    self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
                 
     def _set_constraints_deltas(self):
         self.constraints.append(self.Constraint(
@@ -190,9 +195,12 @@ class SwitchedLinearMPC(SwiLin):
         for i in range(self.n_phases):
             x = self.states[i]
             x_next = self.states[i+1]
-            u = self.inputs[i]
             delta = self.deltas[i]
-            x_next_pred = self.autonomous_evol[i](delta) @ x + self.forced_evol[i](u, delta)
+            if self.n_inputs > 0:
+                u = self.inputs[i]
+                x_next_pred = self.autonomous_evol[i](delta) @ x + self.forced_evol[i](u, delta)
+            else:
+                x_next_pred = self.autonomous_evol[i](delta) @ x
             self.add_constraint([x_next - x_next_pred], np.zeros(self.n_states), np.zeros(self.n_states))
             
     def update_constraint(self, name, g=None, lbg=None, ubg=None):
@@ -241,10 +249,14 @@ class SwitchedLinearMPC(SwiLin):
         for i in range(self.n_phases):
             # Get variables
             x_i = self.states[i]
-            u_i = self.inputs[i]
             delta_i = self.deltas[i]
-            # Compute ith integral of the objective function using the Euler method
-            L += (ca.transpose(x_i-x_ref) @ Q @ (x_i-x_ref) + ca.transpose(u_i) @ R @ u_i) * delta_i
+            if self.n_inputs == 0:
+                # Compute ith integral of the objective function using the Euler method
+                L += (ca.transpose(x_i-x_ref) @ Q @ (x_i-x_ref)) * delta_i
+            else:
+                u_i = self.inputs[i]
+                # Compute ith integral of the objective function using the Euler method
+                L += (ca.transpose(x_i-x_ref) @ Q @ (x_i-x_ref) + ca.transpose(u_i) @ R @ u_i) * delta_i
         
         L += ca.transpose(self.states[-1]-x_ref) @ E @ (self.states[-1]-x_ref)
         
