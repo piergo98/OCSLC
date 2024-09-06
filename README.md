@@ -31,5 +31,4 @@ This class introduces the possibility to optimize simultaneously both controls a
 ### TO DO
 - Complete the README
 - Manage warm start for MPC
-- Add multiple shooting
 - Compute matrix exponential using Padè approximation (low priority)
