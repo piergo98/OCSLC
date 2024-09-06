@@ -180,7 +180,7 @@ class SwitchedLinearMPC(SwiLin):
             name=name,
         )]
         
-    def multiple_shooting_constraints(self, x0, displacement=0):
+    def multiple_shooting_constraints(self, x0, displacement=0, update=False):
         '''
         This method creates the constraints for the multiple shooting approach.
         '''
@@ -200,10 +200,16 @@ class SwitchedLinearMPC(SwiLin):
                 u = self.inputs[i]
                 # Check the index to avoid out of bounds
                 
-                x_next_pred = self.autonomous_evol[(i+displacement)%self.n_modes](delta) @ x + self.forced_evol[(i+displacement)%self.n_modes](u, delta)
+                x_next_pred = self.autonomous_evol[(i+displacement)%self.n_phases](delta) @ x + self.forced_evol[(i+displacement)%self.n_phases](u, delta)
             else:
-                x_next_pred = self.autonomous_evol[(i+displacement)%self.n_modes](delta) @ x
-            self.add_constraint([x_next - x_next_pred], np.zeros(self.n_states), np.zeros(self.n_states))
+                x_next_pred = self.autonomous_evol[(i+displacement)%self.n_phases](delta) @ x
+            
+            
+            # Update or add the constraint
+            if update:
+                self.update_constraint(f"State_{i+1}", g=[x_next - x_next_pred])
+            else:
+                self.add_constraint([x_next - x_next_pred], np.zeros(self.n_states), np.zeros(self.n_states), f"State_{i+1}")
             
     def update_constraint(self, name, g=None, lbg=None, ubg=None):
         for constraint in self.constraints:
@@ -283,6 +289,7 @@ class SwitchedLinearMPC(SwiLin):
         u0_new = inputs_opt.copy()
         deltas0_new = deltas_opt.copy()
         
+        temp = []
         # Check if the dt is greater than the first n phases duration
         # i is the index that indicates how many phases have been completed
         i = np.where(dt < np.cumsum(deltas_opt))[0][0]
@@ -291,9 +298,26 @@ class SwitchedLinearMPC(SwiLin):
             deltas0_new[0] = deltas_opt[0] - dt
             deltas0_new[-1] = deltas_opt[-1] + dt
             
-            # update the optimization vector
-            
-        
+            # Propagate the states
+            if self.multiple_shooting:
+                temp += x0.tolist()
+                # Propagate dynamics from initial state
+                for j in range(self.n_phases):
+                    delta0 = deltas0_new[j]
+                    u0 = u0_new[j*self.n_inputs:j*self.n_inputs+self.n_inputs]
+                    if isinstance(u0, np.ndarray):
+                        u0 = u0.tolist()
+                        
+                    if self.n_inputs > 0:
+                        x_next = self.autonomous_evol[j](delta0) @ x0 + self.forced_evol[j](u0, delta0)
+                        temp += u0 + [delta0]
+                    else:
+                        x_next = self.autonomous_evol[j](delta0) @ x0
+                        temp += [delta0]
+                    temp += x_next.full().flatten().tolist()
+                    
+                    x0 = x_next
+                    
         else:
             # Shift the phases and update
             shifted_times = deltas_opt[i:]
@@ -308,29 +332,33 @@ class SwitchedLinearMPC(SwiLin):
             
             # Sort the multiple shooting constraint with the new order
             if self.multiple_shooting:
-                self.multiple_shooting_constraints(x0, displacement=i)
+                self.multiple_shooting_constraints(x0, displacement=i, update=True)
             
             # Propagate the states
-            temp = []
             if self.multiple_shooting:
                 temp += x0.tolist()
                 # Propagate dynamics from initial state
                 for j in range(self.n_phases):
                     delta0 = deltas0_new[j]
                     u0 = u0_new[j*self.n_inputs:j*self.n_inputs+self.n_inputs]
+                    # Convert the control input to a list if is a numpy array
+                    if isinstance(u0, np.ndarray):
+                        u0 = u0.tolist()
+                    
                     if self.n_inputs > 0:
                         x_next = self.autonomous_evol[j](delta0) @ x0 + self.forced_evol[j](u0, delta0)
+                        temp += u0 + [delta0]
                     else:
                         x_next = self.autonomous_evol[j](delta0) @ x0
-                    temp += [u0]+ [delta0]
+                        temp += [delta0]
                     temp += x_next.full().flatten().tolist()
                     
                     x0 = x_next
                     
-            print(f"Optimization vector updated: {temp}")
-            
-            # update the optimization vector
-            self.opt_var_0 = np.array(temp) 
+        # print(f"Optimization vector updated: {temp}")
+        
+        # update the optimization vector
+        self.opt_var_0 = np.array(temp) 
                     
             
     def create_solver(self, solver='ipopt'):

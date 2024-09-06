@@ -47,7 +47,7 @@ def test_linear_mpc():
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
 
-    n_phases = 20
+    n_phases = 40
     time_horizon = 5
     
     x0 = np.array([1., 3])
@@ -63,7 +63,7 @@ def test_linear_mpc():
 
     Q =  1000. * np.eye(n_states)
     R =  1. * np.eye(n_inputs)
-    E = 10. * np.eye(n_states)
+    E = 0. * np.eye(n_states)
     
     swi_lin_mpc.precompute_matrices(x0, Q, R, E)
     
@@ -105,6 +105,7 @@ def test_linear_mpc():
         inputs_opt, deltas_opt = swi_lin_mpc.step(Q, R, x_meas, xr, E)
         
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
+        swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
         state_hist.append(x.flatten())
         
     print(state_hist)
