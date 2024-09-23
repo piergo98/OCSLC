@@ -102,10 +102,10 @@ def test_linear_mpc():
         # xr = xr1 + (xr2 - xr1) * i/n_steps   
         xr = xr2     
         # swi_lin_mpc.update_constraint("final_state", lbg=xr, ubg=xr)
-        inputs_opt, deltas_opt = swi_lin_mpc.step(Q, R, x_meas, xr, E)
+        inputs_opt, deltas_opt, _ = swi_lin_mpc.step(Q, R, x_meas, xr, E)
         
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
-        swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
+        # swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
         state_hist.append(x.flatten())
         
     print(state_hist)
@@ -144,7 +144,7 @@ def test_linear_mpc_2():
     n_substeps = 100
     sys = SystemLTI(model, dt, n_steps=n_substeps)
 
-    Q =  100. * np.eye(n_states)
+    Q =  100000. * np.eye(n_states)
     R =  0.  * np.eye(n_inputs)
     E =  0.  * np.eye(n_states)
     
@@ -170,11 +170,11 @@ def test_linear_mpc_2():
     state_hist = [x0]
     for _ in range(n_steps):
         x_meas = x 
-        inputs_opt, deltas_opt = swi_lin_mpc.step(Q, R, x_meas, xr, E)
+        inputs_opt, deltas_opt, states_opt = swi_lin_mpc.step(Q, R, x_meas, xr, E)
         # swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
         # update the optimization vector
-        swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
+        # swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
         state_hist.append(x.flatten())
     
     # Plot the state evolution
@@ -189,6 +189,6 @@ def test_linear_mpc_2():
 
 if __name__ == "__main__":
     start = time.time()
-    # test_linear_mpc()
-    test_linear_mpc_2()
+    test_linear_mpc()
+    # test_linear_mpc_2()
     print(f"Execution time: {time.time() - start}")

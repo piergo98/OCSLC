@@ -393,6 +393,13 @@ class SwitchedLinearMPC(SwiLin):
                 'print_time': False,
             }
             
+        elif solver == 'fatrop':
+            opts = {
+                'structure_detection': 'auto',
+                'debug': True,
+                'equality': [True for _ in range(self.n_states * (self.n_phases)+1)],
+            }
+            
         else:
             raise ValueError(f"Solver {solver} is not supported.")
             
@@ -432,14 +439,11 @@ class SwitchedLinearMPC(SwiLin):
         # inputs_opt = sol[:self.n_inputs*self.n_phases]
         # deltas_opt = sol[self.n_inputs*self.n_phases:self.n_inputs*self.n_phases + self.n_phases]
         
-        if self.multiple_shooting:
-            print(f"Optimal states: {states_opt}")
-        
         print(f"Optimal control input: {inputs_opt}")
         print(f"Optimal phase durations: {deltas_opt}")
         print(f"Optimal switching instants: {np.cumsum(deltas_opt)}")
 
-        return inputs_opt, deltas_opt
+        return inputs_opt, deltas_opt, states_opt
     
     def step(self, Q, R, x0, xf=None, E=None):
         self._propagate_state(x0)

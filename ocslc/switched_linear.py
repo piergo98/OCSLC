@@ -723,7 +723,7 @@ class SwiLin:
             # Autonomous systems case
             if self.n_inputs == 0:
                 state = ca.Function('state', [*self.delta], [self.x[i]])
-                x_opt.append(state(delta_opt))
+                x_opt.append(state(*delta_opt))
                 # print(f"State: {self.x_opt}")
             
             # Non-autonomous systems case
@@ -736,6 +736,19 @@ class SwiLin:
                 
         return x_opt
     
+    def split_list_to_arrays(input_list, chunk_size):
+        '''
+        This function splits a list into chunks of the specified size.
+        '''
+        # Ensure the input list can be evenly divided by chunk_size
+        if len(input_list) % chunk_size != 0:
+            raise ValueError("The length of the input list must be divisible by the chunk size.")
+        
+        # Split the list into chunks of the specified size
+        list_of_arrays = [np.array(input_list[i:i + chunk_size]) for i in range(0, len(input_list), chunk_size)]
+        
+        return list_of_arrays
+    
     def plot_optimal_solution(self, delta_opt, *args):
         """
         Plot the optimal state trajectory based on the optimized values of u and delta
@@ -745,13 +758,23 @@ class SwiLin:
         # Check if args is not empty and set the input accordingly
         u_opt = args[0] if args else None   
         
-        # Extract the optimal state trajectory
-        if self.n_inputs == 0:
-            x_opt = self.state_extraction(delta_opt)
+        # Check if the state vector is part of the optimization
+        if len(args) > 1:
+            x_opt = args[1]
         else:
-            x_opt = self.state_extraction(delta_opt, u_opt)
+            x_opt = None
         
-        x_opt_num = np.array([x_opt[i].elements() for i in range(len(x_opt))])
+        if x_opt is None:
+            # Extract the optimal state trajectory
+            if self.n_inputs == 0:
+                x_opt = self.state_extraction(delta_opt)
+            else:
+                x_opt = self.state_extraction(delta_opt, u_opt)
+            
+            x_opt_num = np.array([x_opt[i].elements() for i in range(len(x_opt))])
+        else:
+            x_opt_num = self.split_list_to_arrays(x_opt, self.n_states)
+            
         
         # Create the time grid
         tgrid = []

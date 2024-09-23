@@ -22,7 +22,7 @@ def test_non_autonomous_switched_linear_pannocchia():
     
     xr = np.array([1, 2])
 
-    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=False, x0=x0)    
+    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=True, x0=x0)    
 
     Q = 1. * np.eye(n_states)
     R = 0.1 * np.eye(n_inputs)
@@ -50,11 +50,11 @@ def test_non_autonomous_switched_linear_pannocchia():
     # Set the initial guess  
     swi_lin_mpc.set_initial_guess(time_horizon, x0)
 
-    swi_lin_mpc.create_solver()
+    swi_lin_mpc.create_solver('ipopt')
     
-    inputs_opt, deltas_opt = swi_lin_mpc.solve()
+    inputs_opt, deltas_opt, _ = swi_lin_mpc.solve()
     
-    # swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
+    swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
     
 if __name__ == '__main__':
     start = time.time()
