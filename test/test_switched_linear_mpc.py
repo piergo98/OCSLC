@@ -38,7 +38,9 @@ class SystemLTI():
     
     
 @pytest.mark.skip()
-def test_linear_mpc():
+def test_linear_mpc(args):
+    multiple_shooting = args.multiple_shooting
+    
     model = {
         'A': [np.array([[-1, 0], [1, -2]])],
         'B': [np.eye(2)]
@@ -55,7 +57,7 @@ def test_linear_mpc():
     xr1 = np.array([1.,  3])
     xr2 = np.array([2., 5])
 
-    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=True, x0=x0)
+    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=multiple_shooting, x0=x0)
     
     dt = 0.1
     n_substeps = 100
@@ -105,7 +107,8 @@ def test_linear_mpc():
         inputs_opt, deltas_opt, _ = swi_lin_mpc.step(Q, R, x_meas, xr, E)
         
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
-        # swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
+        if swi_lin_mpc.multiple_shooting:
+            swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
         state_hist.append(x.flatten())
         
     print(state_hist)
@@ -122,7 +125,9 @@ def test_linear_mpc():
     
     
 @pytest.mark.skip()
-def test_linear_mpc_2():
+def test_linear_mpc_2(args):
+    multiple_shooting = args.multiple_shooting
+    
     model = {
         'A': [np.array([[-1, 1], [0, 0]]), np.array([[-1, 0], [0, 0]])],
         'B': [np.array([[0], [0]]), np.array([[0], [0]])]
@@ -138,7 +143,7 @@ def test_linear_mpc_2():
     
     xr = np.array([0.5, 1.])
 
-    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=True, multiple_shooting=True, x0=x0)
+    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=True, multiple_shooting=multiple_shooting, x0=x0)
     
     dt = 1e-2
     n_substeps = 100
@@ -173,8 +178,9 @@ def test_linear_mpc_2():
         inputs_opt, deltas_opt, states_opt = swi_lin_mpc.step(Q, R, x_meas, xr, E)
         # swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
-        # update the optimization vector
-        # swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
+        # Update the optimization vector
+        if swi_lin_mpc.multiple_shooting:
+            swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
         state_hist.append(x.flatten())
     
     # Plot the state evolution
@@ -188,7 +194,19 @@ def test_linear_mpc_2():
     plt.show()
 
 if __name__ == "__main__":
+    import argparse
+    from ocslc.utils.str2bool import str2bool
+    
+    parser = argparse.ArgumentParser(description="Description")
+    parser.add_argument('--multiple_shooting', '--ms',
+        type=str2bool, metavar='bool', default=True, required=False,
+        help='If True, uses multiple shooting in the optimization problem.',
+    )
+    
+    args = parser.parse_args()
+    
+    
     start = time.time()
-    test_linear_mpc()
-    # test_linear_mpc_2()
+    # test_linear_mpc(args)
+    test_linear_mpc_2(args)
     print(f"Execution time: {time.time() - start}")
