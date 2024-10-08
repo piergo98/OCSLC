@@ -285,7 +285,6 @@ class SwitchedLinearMPC(SwiLin):
         It updates the phases taking into account the time elapsed.
         It also updates the control inputs and phases sequence.
         '''
-        x0_new = x0.copy()
         u0_new = inputs_opt.copy()
         deltas0_new = deltas_opt.copy()
         
@@ -294,7 +293,7 @@ class SwitchedLinearMPC(SwiLin):
         # i is the index that indicates how many phases have been completed
         i = np.where(dt < np.cumsum(deltas_opt))[0][0]
         if i == 0:
-            # update the first phase and add the time to the last phase
+            # Update the first phase and add the time to the last phase
             deltas0_new[0] = deltas_opt[0] - dt
             deltas0_new[-1] = deltas_opt[-1] + dt
             
@@ -345,11 +344,13 @@ class SwitchedLinearMPC(SwiLin):
                     if isinstance(u0, np.ndarray):
                         u0 = u0.tolist()
                     
+                    j_displaced = (j+i)%self.n_phases
                     if self.n_inputs > 0:
-                        x_next = self.autonomous_evol[j](delta0) @ x0 + self.forced_evol[j](u0, delta0)
+                        x_next = self.autonomous_evol[j_displaced](delta0) @ x0 \
+                            + self.forced_evol[j_displaced](u0, delta0)
                         temp += u0 + [delta0]
                     else:
-                        x_next = self.autonomous_evol[j](delta0) @ x0
+                        x_next = self.autonomous_evol[j_displaced](delta0) @ x0
                         temp += [delta0]
                     temp += x_next.full().flatten().tolist()
                     
