@@ -286,11 +286,12 @@ class SwitchedLinearMPC(SwiLin):
         It also updates the control inputs and phases sequence.
         '''
         u0_new = inputs_opt.copy()
-        deltas0_new = deltas_opt.copy()
+        deltas0_new = deltas_opt.copy().tolist()
         
         temp = []
         # Check if the dt is greater than the first n phases duration
-        # i is the index that indicates how many phases have been completed
+        # i is the index that indicates that referres to the first phase 
+        # that is not completely covered by the time dt. It also indicates how many phases are completed.
         i = np.where(dt < np.cumsum(deltas_opt))[0][0]
         if i == 0:
             # Update the first phase and add the time to the last phase
@@ -303,11 +304,12 @@ class SwitchedLinearMPC(SwiLin):
                 # Propagate dynamics from initial state
                 for j in range(self.n_phases):
                     delta0 = deltas0_new[j]
-                    u0 = u0_new[j*self.n_inputs:j*self.n_inputs+self.n_inputs]
-                    if isinstance(u0, np.ndarray):
-                        u0 = u0.tolist()
-                        
+                    
                     if self.n_inputs > 0:
+                        u0 = u0_new[j*self.n_inputs:j*self.n_inputs+self.n_inputs]
+                        if isinstance(u0, np.ndarray):
+                            u0 = u0.tolist()
+                        
                         x_next = self.autonomous_evol[j](delta0) @ x0 + self.forced_evol[j](u0, delta0)
                         temp += u0 + [delta0]
                     else:
@@ -319,15 +321,16 @@ class SwitchedLinearMPC(SwiLin):
                     
         else:
             # Shift the phases and update
-            shifted_times = deltas_opt[i:]
-            shifted_times[0] = deltas_opt[i] - (dt - np.cumsum(deltas_opt)[i-1])
-            extention = np.full(i, dt/i)
-            deltas0_new = np.concatenate((shifted_times, extention))
+            old_times = deltas_opt[:i]
+            deltas0_new = self._shift(deltas0_new, i)
+            for j in range(i):
+                deltas0_new[-j-1] = np.sum(old_times) / i
             
             # Shift the controls
-            shifted_controls = inputs_opt[i:]
-            extention_controls = np.zeros((i*self.n_inputs))
-            u0_new = np.concatenate((shifted_controls, extention_controls))
+            if self.n_inputs > 0:
+                u0_new = self._shift(u0_new, i)
+                for j in range(i):
+                    u0_new[-j-1] = 0
             
             # Sort the multiple shooting constraint with the new order
             if self.multiple_shooting:
@@ -359,8 +362,16 @@ class SwitchedLinearMPC(SwiLin):
         # print(f"Optimization vector updated: {temp}")
         
         # update the optimization vector
-        self.opt_var_0 = np.array(temp) 
-                    
+        self.opt_var_0 = np.array(temp)
+        
+    def _shift(self, list: list, n):
+        '''
+        Shifts the elements of a list by n positions to the left.
+        '''
+        for _ in range(n):
+            list.append(list.pop(0))
+            
+        return list      
             
     def create_solver(self, solver='ipopt'):
         g = []
@@ -384,7 +395,9 @@ class SwitchedLinearMPC(SwiLin):
                 # 'ipopt.adaptive_mu_globalization': 'kkt-error',
                 # 'ipopt.tol': 1e-6,
                 # 'ipopt.acceptable_tol': 1e-4,
-                'ipopt.print_level': 3
+                'ipopt.print_level': 3,
+                'print_time': True,
+                # 'ipopt.warm_start_init_point': 'yes',
             }
                 
         elif solver == 'sqpmethod':
@@ -440,9 +453,9 @@ class SwitchedLinearMPC(SwiLin):
         # inputs_opt = sol[:self.n_inputs*self.n_phases]
         # deltas_opt = sol[self.n_inputs*self.n_phases:self.n_inputs*self.n_phases + self.n_phases]
         
-        print(f"Optimal control input: {inputs_opt}")
-        print(f"Optimal phase durations: {deltas_opt}")
-        print(f"Optimal switching instants: {np.cumsum(deltas_opt)}")
+        # print(f"Optimal control input: {inputs_opt}")
+        # print(f"Optimal phase durations: {deltas_opt}")
+        # print(f"Optimal switching instants: {np.cumsum(deltas_opt)}")
 
         return inputs_opt, deltas_opt, states_opt
     

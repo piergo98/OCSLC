@@ -7,6 +7,9 @@ from ocslc.switched_linear_mpc import SwitchedLinearMPC
 
 
 def test_non_autonomous_switched_linear_pannocchia():
+    
+    start = time.time()
+    
     model = {
         'A': [np.array([[-0.1, 0, 0], [0, -2, -6.25], [0, 4, 0]])],
         'B': [np.array([[0.25], [2], [0]])],
@@ -30,6 +33,10 @@ def test_non_autonomous_switched_linear_pannocchia():
 
     swi_lin_mpc.precompute_matrices(x0, Q, R, E)
     
+    precompute_time = time.time() - start
+    print(f"Precomputation time: {precompute_time}")
+    start = time.time()
+    
     states_lb = np.array([-100, -100, -100])
     states_ub = np.array([100, 100, 100]) 
     
@@ -52,7 +59,15 @@ def test_non_autonomous_switched_linear_pannocchia():
 
     swi_lin_mpc.create_solver('ipopt')
     
+    setup_time = time.time() - start
+    print(f"Setup time: {setup_time}")
+    start = time.time()
+    
     inputs_opt, deltas_opt, _ = swi_lin_mpc.solve()
+    solving_time = time.time() - start
+    print(f"Solving time: {solving_time}")
+    print("--------------------------------")
+    print(f"Total time: {precompute_time + setup_time + solving_time}")
     
     swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
     
