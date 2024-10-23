@@ -62,6 +62,10 @@ class SwiLin:
         self.autonomous_evol = []
         self.forced_evol = []
         self.H = []
+        self.J = []
+        self.L = []
+        self.M = []
+        self.R = []
         self.S = []
         self.Sr = []
         self.C = []
@@ -220,7 +224,7 @@ class SwiLin:
             
         return n_terms_max
     
-    def mat_exp_prop(self, index):
+    def mat_exp_prop(self, index, Q, R):
         """
         Compute matrix exponential properties.
 
@@ -231,6 +235,10 @@ class SwiLin:
         Ei      (ca.SX): The matrix exponential of Ai*delta_i.
         phi_f_i (ca.SX): The integral part multiplied by the control input ui.
         Hi      (ca.SX): A list of matrices constructed in the loop, based on phi_f_i_ and Ai.
+        Li      (ca.SX): Matrix for the cost function
+        Mi      (ca.SX): Matrix for the cost function
+        Ri      (ca.SX): Matrix for the cost function
+        
         """        
         # Define the system matrices for the given index
         A = self.A[index]
@@ -239,8 +247,28 @@ class SwiLin:
         # Extract the phase duration
         delta_i = self.delta[index]
         
+        # Create a big matrix of dimentions (3n+m)x(3n+m) 
+        C = np.zeros((3*self.n_states + self.n_inputs, 3*self.n_states + self.n_inputs))
+        # Fill the matrix
+        C[:self.n_states, :self.n_states] = -np.transpose(A)
+        C[:self.n_states, self.n_states:2*self.n_states] = np.eye(self.n_states)
+        C[self.n_states:2*self.n_states, self.n_states:2*self.n_states] = -np.transpose(A)
+        C[self.n_states:2*self.n_states, 2*self.n_states:3*self.n_states] = Q
+        C[2*self.n_states:3*self.n_states, 2*self.n_states:3*self.n_states] = A
+        C[2*self.n_states:3*self.n_states, 3*self.n_states:] = B
+        
         # Compute matrix exponential
-        Ei = self.expm(A, delta_i)
+        exp_C = self.expm(C, delta_i)
+        
+        # Extract the instrumental matrices from the matrix exponential
+        F3 = exp_C[2*self.n_states:3*self.n_states, 2*self.n_states:3*self.n_states]
+        G2 = exp_C[self.n_states:2*self.n_states, 2*self.n_states:3*self.n_states]
+        G3 = exp_C[2*self.n_states:3*self.n_states, 3*self.n_states:]
+        H2 = exp_C[self.n_states:2*self.n_states, 3*self.n_states:]
+        K1 = exp_C[:self.n_states, 3*self.n_states:]
+        
+        Ei = F3
+        Li = ca.transpose(F3) @ G2        
         
         # Distinct case for autonomous systems
         # Extract the control input
@@ -248,12 +276,16 @@ class SwiLin:
             ui = self.u[index]
         
             # Compute the integral of the system matrix and input matrix over the time interval
-            phi_f_i_ = self.compute_integral(A, B, 0, delta_i)
+            # phi_f_i_ = self.compute_integral(A, B, 0, delta_i)
+            phi_f_i_ = G3
             
             phi_f_i = phi_f_i_ @ ui
-        
-        # Create the H matrix related to the i-th mode (only for the non-autonomous case)
-        if self.n_inputs > 0:
+
+            Mi = ca.transpose(F3) @ H2
+            
+            Ri = (ca.transpose(B) @ ca.transpose(F3) @ K1) + ca.transpose(ca.transpose(B) @ ca.transpose(F3) @ K1) + R * delta_i
+            
+            # Create the H matrix related to the i-th mode (only for the non-autonomous case)
             Hi = []
             
             # Fill the Hk matrix with the k-th column of phi_f_i_ (integral term)
@@ -263,9 +295,9 @@ class SwiLin:
                 Hk[:self.n_states, self.n_states] =  phi_f_i_[:, k]
                 Hi.append(Hk)
         
-            return Ei, phi_f_i, Hi
+            return Ei, phi_f_i, Hi, Li, Mi, Ri
         else:
-            return Ei, ca.SX.zeros(0), 0
+            return Ei, ca.SX.zeros(0), ca.SX.zeros(0), Li, ca.SX.zeros(0), ca.SX.zeros(0)
         
     def _propagate_state(self, x0):
         self.x = [x0]
@@ -547,7 +579,7 @@ class SwiLin:
             
         return G
         
-    def cost_function(self, R, x0, xr=None, E=None):
+    def cost_function(self, xr=None, E=None):
         """
         Computes the cost function.
         
@@ -561,24 +593,31 @@ class SwiLin:
         J (ca.SX): The cost function.
         
         """
-        # Compute the cost function
-        # J = sum(x0[i] * self.S[0][i, j] * x0[j] for i in range(self.Nx+1) for j in range(self.Nx+1))
-        J = 0
-        # for i in range(self.n_states+1):
-        #     for j in range(self.n_states+1):
-        #         J += x0[i] * self.S[0][i, j] * x0[j]
-        x0 = np.reshape(x0, (-1, 1))
-        J += np.transpose(x0) @ self.S[0] @ x0
+        # # Compute the cost function
+        # # J = sum(x0[i] * self.S[0][i, j] * x0[j] for i in range(self.Nx+1) for j in range(self.Nx+1))
+        # J = 0
+        # # for i in range(self.n_states+1):
+        # #     for j in range(self.n_states+1):
+        # #         J += x0[i] * self.S[0][i, j] * x0[j]
+        # x0 = np.reshape(x0, (-1, 1))
+        # J += np.transpose(x0) @ self.S[0] @ x0
         
-        if self.n_inputs > 0:
-            J += self.G_matrix(R)
+        # if self.n_inputs > 0:
+        #     J += self.G_matrix(R)
             
-        if self.Sr:
-            # x0 = np.reshape(x0, (-1, 1))
-            J += -2 * np.transpose(x0) @ self.Sr[0]
+        # if self.Sr:
+        #     # x0 = np.reshape(x0, (-1, 1))
+        #     J += -2 * np.transpose(x0) @ self.Sr[0]
             
-        if xr is not None:
-            J += -2 * xr.reshape(1, -1) @ E @ self.x[-1] + xr.reshape(1, -1) @ E @ xr
+        # if xr is not None:
+        #     J += -2 * xr.reshape(1, -1) @ E @ self.x[-1] + xr.reshape(1, -1) @ E @ xr
+
+        J = 0
+        for i in range(self.n_phases):
+            if self.n_inputs == 0:
+                J += 1/2 * (ca.transpose(self.x[i]) @ self.L[i] @ self.x[i])
+            else:
+                J += 1/2 * (ca.transpose(self.x[i]) @ self.L[i] @ self.x[i] + 2 * ca.transpose(self.x[i]) @ self.M[i] @ self.u[i] + ca.transpose(self.u[i]) @ self.R[i] @ self.u[i])
         
         # print(f"Control input: {self.u}")
         # print(f"Phase duration: {type(self.delta)}")
@@ -656,56 +695,49 @@ class SwiLin:
         
         for i in range(self.n_phases):
             # Compute the matrix exponential properties
-            Ei, phi_f_i, Hi = self.mat_exp_prop(i)
+            Ei, phi_f_i, Hi, Li, Mi, Ri = self.mat_exp_prop(i, Q, R)
             self.E.append(Ei)
             self.autonomous_evol.append(ca.Function('autonomous_evol', [self.delta[i]], [Ei]) )
             self.phi_f.append(phi_f_i)
             self.forced_evol.append(ca.Function('forced_evol', [self.u[i], self.delta[i]], [phi_f_i]) )
             self.H.append(Hi)
+            self.L.append(Li)
+            self.M.append(Mi)
+            self.R.append(Ri)
         
-            if self.n_inputs > 0:
-                # Compute the D matrix
-                # D = self.D_matrix(i, Q_)
-                # self.D.append(D)
+            # if self.n_inputs > 0:
+            #     # Compute the D matrix
+            #     # D = self.D_matrix(i, Q_)
+            #     # self.D.append(D)
             
-                # Compute the G matrix
-                G = self.G_matrix(R)
-                self.G.append(G)
+            #     # Compute the G matrix
+            #     G = self.G_matrix(R)
+            #     self.G.append(G)
         
         # Initialize the S matrix with the terminal cost
-        self.S.append(E_)
-        if xr is not None:
-            xr_aug = np.append(xr, 1)
-            self.Sr.append(E_@ xr_aug)
+        # self.S.append(E_)
+        # if xr is not None:
+        #     xr_aug = np.append(xr, 1)
+        #     self.Sr.append(E_@ xr_aug)
             
-        for i in range(self.n_phases-1, -1, -1):
-            if xr is not None:
-                # Compute the S and Sr matrices
-                S, Sr = self.S_matrix(i, Q_, xr_aug)
-                self.S.insert(0, S)
-                self.Sr.insert(0, Sr)
-            else:
-                # Compute the S matrix
-                S = self.S_matrix(i, Q_)
-                self.S.insert(0, S)
+        # for i in range(self.n_phases-1, -1, -1):
+        #     if xr is not None:
+        #         # Compute the S and Sr matrices
+        #         S, Sr = self.S_matrix(i, Q_, xr_aug)
+        #         self.S.insert(0, S)
+        #         self.Sr.insert(0, Sr)
+        #     else:
+        #         # Compute the S matrix
+        #         S = self.S_matrix(i, Q_)
+        #         self.S.insert(0, S)
             
-            # Create the S_num function for debugging
-            if self.n_inputs == 0:
-                S_num = ca.Function('S_num', [*self.delta], [S])
-            else:
-                S_num = ca.Function('S_num', [*self.delta, *self.u], [S])
+        #     # Create the S_num function for debugging
+        #     if self.n_inputs == 0:
+        #         S_num = ca.Function('S_num', [*self.delta], [S])
+        #     else:
+        #         S_num = ca.Function('S_num', [*self.delta, *self.u], [S])
                 
-            self.S_num.insert(0, S_num)
-        
-        # for i in range(self.n_phases):
-        #     # Compute the C matrix
-        #     C = self.C_matrix(i, Q_)
-        #     self.C.append(C)
-            
-        #     if self.n_inputs > 0:
-        #         # Compute the N matrix
-        #         N = self.N_matrix(i)
-        #         self.N.append(N)
+        #     self.S_num.insert(0, S_num)
                 
         # Propagate the state using the computed matrices.
         self._propagate_state(x0)
@@ -799,7 +831,7 @@ class SwiLin:
         time = 0
         for i in range(self.n_phases):
             time = time + delta_opt[i]
-            plt.axvline(x=time, color='k', linestyle='--')
+            plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)
         ax.set(xlabel='Time', ylabel='State', title='State trajectory')
         ax.grid()
         

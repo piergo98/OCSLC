@@ -62,6 +62,14 @@ class SwitchedLinearMPC(SwiLin):
         self.lb_opt_var[self.shift-1::self.shift] = 0
         self.ub_opt_var[self.shift-1::self.shift] = time_horizon
         
+        # [DEBUG] Force the phase durations
+        # times = np.array([0.100, 0.297, 0.433, 0.642, 0.767, 1.0])
+        # durations = np.diff(times)
+        # durations = np.insert(durations, 0, times[0])
+        # for i in range(self.shift-1, self.n_opti, self.shift):
+        #     self.lb_opt_var[i] = durations[i//self.shift]
+        #     self.ub_opt_var[i] = durations[i//self.shift]
+        
         # Initialize cost and constraints
         self.cost = 0
         self.constraints = []
@@ -231,13 +239,13 @@ class SwitchedLinearMPC(SwiLin):
         x0_aug = np.append(x0, 1)
         
         if xr is not None and E is not None:
-            cost = self.cost_function(R, x0_aug, xr, E)
+            cost = self.cost_function(xr, E)
         elif xr is not None and E is None:
             raise ValueError("xr must be provided with E.")
         elif xr is None and E is not None:
             raise ValueError("E must be provided with xr.")
         else:
-            cost = self.cost_function(R, x0_aug)
+            cost = self.cost_function()
                 
         if self.n_inputs == 0:
             self.cost = cost(*self.deltas)
@@ -258,15 +266,18 @@ class SwitchedLinearMPC(SwiLin):
             # Get variables
             x_i = self.states[i]
             delta_i = self.deltas[i]
+            Li = ca.Function('Li', [self.delta[i]], [self.L[i]])
             if self.n_inputs == 0:
-                # Compute ith integral of the objective function using the Euler method
-                L += (ca.transpose(x_i-x_ref) @ Q @ (x_i-x_ref)) * delta_i
+                # Compute ith integral of the objective function using matrix exponential Van Loan method
+                L += 1/2 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
             else:
                 u_i = self.inputs[i]
-                # Compute ith integral of the objective function using the Euler method
-                L += (ca.transpose(x_i-x_ref) @ Q @ (x_i-x_ref) + ca.transpose(u_i) @ R @ u_i) * delta_i
+                Mi = ca.Function('Mi', [self.delta[i]], [self.M[i]])
+                Ri = ca.Function('Ri', [self.delta[i]], [self.R[i]])
+                # Compute ith integral of the objective function using matrix exponential Van Loan method
+                L += 1/2 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i + ca.transpose(u_i) @ Ri(delta_i) @ u_i)
         
-        L += ca.transpose(self.states[-1]-x_ref) @ E @ (self.states[-1]-x_ref)
+        # L += ca.transpose(self.states[-1]-x_ref) @ E @ (self.states[-1]-x_ref)
         
         self.cost = L
         
@@ -373,7 +384,12 @@ class SwitchedLinearMPC(SwiLin):
             
         return list      
             
-    def create_solver(self, solver='ipopt'):
+    def create_solver(self, solver='ipopt', **kwargs):
+        tol = kwargs.get('tol', 1e-8)
+        acceptable_tol = kwargs.get('acceptable_tol', 1e-6)
+        max_iter = kwargs.get('max_iter', 5000)
+        print_level = kwargs.get('print_level', 3)
+        
         g = []
         for constraint in self.constraints:
             g += constraint.g
@@ -386,16 +402,16 @@ class SwitchedLinearMPC(SwiLin):
         
         if solver == 'ipopt':        
             opts = {
-                'ipopt.max_iter': 5e3,
+                'ipopt.max_iter': max_iter,
                 # 'ipopt.gradient_approximation': 'finite-difference-values',
                 # 'ipopt.hessian_approximation': 'limited-memory', 
                 # 'ipopt.hsllib': "/usr/local/libhsl.so",
                 # 'ipopt.linear_solver': 'mumps',
                 # 'ipopt.mu_strategy': 'adaptive',
                 # 'ipopt.adaptive_mu_globalization': 'kkt-error',
-                # 'ipopt.tol': 1e-6,
-                # 'ipopt.acceptable_tol': 1e-4,
-                'ipopt.print_level': 3,
+                'ipopt.tol': tol,
+                'ipopt.acceptable_tol': acceptable_tol,
+                'ipopt.print_level': print_level,
                 'print_time': True,
                 # 'ipopt.warm_start_init_point': 'yes',
             }
@@ -433,6 +449,7 @@ class SwitchedLinearMPC(SwiLin):
         )
         
         sol = r['x'].full().flatten()
+        self.opt_cost = r['f'].full().flatten()
         
         self.opt_var_0 = sol
         
@@ -448,10 +465,6 @@ class SwitchedLinearMPC(SwiLin):
                 inputs_opt.extend(sol[i:i+self.n_inputs])
             
         deltas_opt = sol[self.shift-1::self.shift]
-        
-        
-        # inputs_opt = sol[:self.n_inputs*self.n_phases]
-        # deltas_opt = sol[self.n_inputs*self.n_phases:self.n_inputs*self.n_phases + self.n_phases]
         
         # print(f"Optimal control input: {inputs_opt}")
         # print(f"Optimal phase durations: {deltas_opt}")
