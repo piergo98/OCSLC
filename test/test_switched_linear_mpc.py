@@ -107,8 +107,8 @@ def test_linear_mpc(args):
         inputs_opt, deltas_opt, _ = swi_lin_mpc.step(Q, R, x_meas, xr, E)
         
         x = sys.evolve_system(x, inputs_opt, deltas_opt)
-        if swi_lin_mpc.multiple_shooting:
-            swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
+        # if swi_lin_mpc.multiple_shooting:
+        #     swi_lin_mpc.update_opt_vector(x, inputs_opt, deltas_opt, dt, time_horizon)
         state_hist.append(x.flatten())
         
     print(state_hist)
@@ -129,7 +129,7 @@ def test_linear_mpc_2(args):
     multiple_shooting = args.multiple_shooting
     
     model = {
-        'A': [np.array([[-1, 1], [0, 0]]), np.array([[-1, 0], [0, 0]])],
+        'A': [np.array([[-10, 10], [0, 0]]), np.array([[-10, 0], [0, 0]])],
         'B': [np.array([[0], [0]]), np.array([[0], [0]])]
     }
 
@@ -149,7 +149,7 @@ def test_linear_mpc_2(args):
     n_substeps = 100
     sys = SystemLTI(model, dt, n_steps=n_substeps)
 
-    Q =  100000. * np.eye(n_states)
+    Q =  100. * np.eye(n_states)
     R =  0.  * np.eye(n_inputs)
     E =  0.  * np.eye(n_states)
     
