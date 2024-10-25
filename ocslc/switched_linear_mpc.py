@@ -14,10 +14,13 @@ class SwitchedLinearMPC(SwiLin):
             self.ubg = ubg
             self.name = name
     
-    def __init__(self, model, n_phases, time_horizon, auto=False, multiple_shooting=False, x0=None) -> None:
+    def __init__(self, model, n_phases, time_horizon, auto=False, multiple_shooting=False, x0=None, inspect=False) -> None:
         self._check_model_structure(model)
         n_states = model['A'][0].shape[0]
         n_inputs = model['B'][0].shape[1]
+        
+        # Debug mode
+        self.inspect = inspect
         
         super().__init__(n_phases, n_states, n_inputs, time_horizon, auto)
         self.load_model(model)
@@ -59,16 +62,23 @@ class SwitchedLinearMPC(SwiLin):
         self.ub_opt_var =   np.ones(self.n_opti) * np.inf
         
         # Set bounds for the phase durations
-        self.lb_opt_var[self.shift-1::self.shift] = 0
-        self.ub_opt_var[self.shift-1::self.shift] = time_horizon
-        
-        # [DEBUG] Force the phase durations
-        # times = np.array([0.100, 0.297, 0.433, 0.642, 0.767, 1.0])
-        # durations = np.diff(times)
-        # durations = np.insert(durations, 0, times[0])
-        # for i in range(self.shift-1, self.n_opti, self.shift):
-        #     self.lb_opt_var[i] = durations[i//self.shift]
-        #     self.ub_opt_var[i] = durations[i//self.shift]
+        if self.inspect:
+            # [INSPECT] Force the phase durations
+            times = np.array([0.03210398, 0.03505938, 0.03830069, 0.04188936, 0.04590901, 0.05047757,
+                              0.0557692 , 0.06205688, 0.06980505, 0.07990499, 0.0944395 , 0.12068451,
+                              0.28995405, 0.3095119 , 0.33082882, 0.3532854 , 0.37652738, 0.40040063,
+                              0.42485287, 0.44987585, 0.47547918, 0.50167956, 0.52849671, 0.55595177,
+                              0.5840667 , 0.61286399, 0.64236653, 0.67259741, 0.70357978, 0.73533646,
+                              0.76788894, 0.80125299, 0.83541683, 0.8702246 , 0.90480779, 0.93608366,
+                              0.96015295, 0.97739745, 0.99012673, 1.        ])
+            durations = np.diff(times)
+            durations = np.insert(durations, 0, times[0])
+            for i in range(self.shift-1, self.n_opti, self.shift):
+                self.lb_opt_var[i] = durations[i//self.shift]
+                self.ub_opt_var[i] = durations[i//self.shift]
+        else:
+            self.lb_opt_var[self.shift-1::self.shift] = 0
+            self.ub_opt_var[self.shift-1::self.shift] = time_horizon
         
         # Initialize cost and constraints
         self.cost = 0
@@ -136,7 +146,7 @@ class SwitchedLinearMPC(SwiLin):
             if B.shape != B_shape:
                 raise ValueError("All 'B' matrices are not the same size.")
         
-    def set_bounds(self, inputs_lb, inputs_ub, states_lb=None, states_ub=None):
+    def set_bounds(self, inputs_lb, inputs_ub, states_lb=None, states_ub=None, inspect_inputs=None):
         """
         This method sets the lower and upper bounds for the control inputs and states.
         
@@ -145,16 +155,38 @@ class SwitchedLinearMPC(SwiLin):
             inputs_ub (np.array): The upper bounds for the control inputs.
             states_lb (np.array): The lower bounds for the states. Only required if multiple_shooting is enabled.
             states_ub (np.array): The upper bounds for the states. Only required if multiple_shooting is enabled.
+            inspect_inputs (np.array): The control inputs to be used in the inspect mode.
         """
         # Check if the states bounds are required
         if self.multiple_shooting and (states_lb is None or states_ub is None):
-            raise ValueError("States bounds must be provided when multiple shooting is enabled.")    
+            raise ValueError("States bounds must be provided when multiple shooting is enabled.")  
         
+        if self.inspect and inspect_inputs is not None:
+            # [INSPECT] Use the provided debug inputs
+            inputs = np.array(inspect_inputs)
+            print("Inspect mode: Using provided inspect inputs")
+            
+            # Split the provided inputs vector according to the input vector dimension
+            inputs_split = [inputs[i:i+self.n_inputs] for i in range(0, len(inputs), self.n_inputs)]
+            
+            # Set the input bounds to be the same as the provided inputs
+            inputs_lb = inputs_split
+            inputs_ub = inputs_split
+            
+            inspect_index = 0
+            
+            
+            
         if self.multiple_shooting:
             # Set inputs bounds
             for i in range(self.n_states, self.n_opti, self.shift):
-                self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
-                self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
+                if self.inspect:
+                    self.lb_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
+                    self.ub_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
+                    inspect_index += 1
+                else:
+                    self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
+                    self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
             
             # Set states bounds
             for i in range(0, self.n_opti, self.shift):
@@ -164,8 +196,13 @@ class SwitchedLinearMPC(SwiLin):
         else:
             if self.n_inputs > 0:
                 for i in range(0, self.n_opti, self.shift):
-                    self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
-                    self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
+                    if self.inspect:
+                        self.lb_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
+                        self.ub_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
+                        inspect_index += 1
+                    else:
+                        self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
+                        self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
                 
     def _set_constraints_deltas(self):
         self.constraints.append(self.Constraint(
@@ -466,9 +503,9 @@ class SwitchedLinearMPC(SwiLin):
             
         deltas_opt = sol[self.shift-1::self.shift]
         
-        # print(f"Optimal control input: {inputs_opt}")
-        # print(f"Optimal phase durations: {deltas_opt}")
-        # print(f"Optimal switching instants: {np.cumsum(deltas_opt)}")
+        print(f"Optimal control input: {inputs_opt}")
+        print(f"Optimal phase durations: {deltas_opt}")
+        print(f"Optimal switching instants: {np.cumsum(deltas_opt)}")
 
         return inputs_opt, deltas_opt, states_opt
     
