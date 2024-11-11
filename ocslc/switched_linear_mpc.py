@@ -282,7 +282,7 @@ class SwitchedLinearMPC(SwiLin):
         elif xr is None and E is not None:
             raise ValueError("E must be provided with xr.")
         else:
-            cost = self.cost_function()
+            cost = self.cost_function(R, x0_aug)
                 
         if self.n_inputs == 0:
             self.cost = cost(*self.deltas)
@@ -306,13 +306,14 @@ class SwitchedLinearMPC(SwiLin):
             Li = ca.Function('Li', [self.delta[i]], [self.L[i]])
             if self.n_inputs == 0:
                 # Compute ith integral of the objective function using matrix exponential Van Loan method
-                L += 1/2 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
+                L += 0.5 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
             else:
                 u_i = self.inputs[i]
                 Mi = ca.Function('Mi', [self.delta[i]], [self.M[i]])
                 Ri = ca.Function('Ri', [self.delta[i]], [self.R[i]])
                 # Compute ith integral of the objective function using matrix exponential Van Loan method
-                L += 1/2 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i + ca.transpose(u_i) @ Ri(delta_i) @ u_i)
+                L += 0.5 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i 
+                         + ca.transpose(u_i) @ Ri(delta_i) @ u_i + ca.transpose(u_i) @ R*delta_i @ u_i)
         
         # L += ca.transpose(self.states[-1]-x_ref) @ E @ (self.states[-1]-x_ref)
         

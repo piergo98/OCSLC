@@ -22,10 +22,8 @@ def test_non_autonomous_switched_linear_pannocchia():
     time_horizon = 10
     
     x0 = np.array([1.3440, -4.5850, 5.6470])
-    
-    xr = np.array([1, 2])
 
-    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=True, x0=x0)    
+    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=False, x0=x0)    
 
     Q = 1. * np.eye(n_states)
     R = 0.1 * np.eye(n_inputs)
@@ -44,13 +42,6 @@ def test_non_autonomous_switched_linear_pannocchia():
     
     if swi_lin_mpc.multiple_shooting:
         swi_lin_mpc.multiple_shooting_constraints(x0)
-    
-    # xf = swi_lin_mpc.state_extraction(swi_lin_mpc.deltas, swi_lin_mpc.inputs)[-1]
-    # final_state_constr = [xf]
-    # final_state_lb = xr
-    # final_state_ub = xr
-
-    # swi_lin_mpc.add_constraint(final_state_constr, final_state_lb, final_state_ub)
 
     swi_lin_mpc.set_cost_function(Q, R, x0)
     
@@ -74,5 +65,5 @@ def test_non_autonomous_switched_linear_pannocchia():
 if __name__ == '__main__':
     start = time.time()
     test_non_autonomous_switched_linear_pannocchia()
-    print(f"Execution time: {time.time() - start}")
+    # print(f"Execution time: {time.time() - start}")
     print("All tests passed!")

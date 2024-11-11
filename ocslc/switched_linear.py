@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from scipy.linalg import block_diag
+import scipy.io
 
 
 class SwiLin:
@@ -283,7 +284,7 @@ class SwiLin:
 
             Mi = ca.transpose(F3) @ H2
             
-            Ri = (ca.transpose(B) @ ca.transpose(F3) @ K1) + ca.transpose(ca.transpose(B) @ ca.transpose(F3) @ K1) + R * delta_i
+            Ri = (ca.transpose(B) @ ca.transpose(F3) @ K1) + ca.transpose(ca.transpose(B) @ ca.transpose(F3) @ K1)
             
             # Create the H matrix related to the i-th mode (only for the non-autonomous case)
             Hi = []
@@ -380,7 +381,7 @@ class SwiLin:
         
         return D
     
-    def S_matrix(self, index, Q, xr=None):
+    def S_matrix(self, index, xr=None):
         """
         Computes the S matrix for the given index.
         If a reference state is given, it computes the Sr matrix in order to minimize the error
@@ -397,102 +398,35 @@ class SwiLin:
         Sr      (ca.SX):    The Sr matrix.
         
         """
-        eta = ca.SX.sym('eta')
-        # Define the system matrices for the given index
-        A = self.A[index]
-        B = self.B[index]
-        
-        # Extract the control input
-        ui = self.u[index]
-        
-        # Extract the phase duration
-        delta_i = self.delta[index]
-        
         # Extract the autonomous and non-autonomous parts of the state
         phi_a = self.E[index]
         phi_f = self.phi_f[index]
+        
+        # Extract the input (if present)
+        if self.n_inputs > 0:
+            ui = self.u[index]
+        
+        # Extract the matrices for the integral term
+        Li = self.L[index]
+        Mi = self.M[index]
+        Ri = self.R[index]
         
         # print(f"S_matrix: {self.S[0]}")
         # Extract the S matrix of the previous iteration
         S_prev = self.S[0]
         
-        if xr is not None:
-            Sr_prev = self.Sr[0]
-        
-        # Compute the integral term
-        phi_a_t = self.expm(A, eta)
-        phi_f_t = self.compute_integral(A, B, 0, eta)
-        # print(f"phi_a_t: {phi_f_t}")
-        
-        if self.n_inputs == 0:
-            phi_t = self.transition_matrix(phi_a_t, phi_f_t)
-        elif self.n_inputs > 0:
-            phi_t = self.transition_matrix(phi_a_t, phi_f_t@ui)
-        else:
-            raise ValueError("The number of controls must be greater than 0.")
-        
-        # Check the transition matrix (DEBUG)
-        # trans = ca.Function('trans', [eta], [phi_t])
-        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
-        # print(f"Transition: {trans(delta_opt[index])}")
-        
-        # Integral term that updates the S matrix
-        f = ca.transpose(phi_t) @ Q @ phi_t
-        
-        if xr is not None:
-            # Integral term that updates  the Sr matrix
-            fr = ca.transpose(phi_t) @ Q @ xr
-        
-        # Debug the matrix f (DEBUG)
-        # f_num = ca.Function('f_num', [eta], [f])
-        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
-        # print(f"f_num: {f_num(delta_opt[index])}")
-        
-        if self.n_inputs == 0:
-            f_int = ca.Function('f_int', [eta], [f])
-            if xr is not None:
-                fr_int = ca.Function('fr_int', [eta], [fr])
-        elif self.n_inputs > 0:
-            f_int = ca.Function('f_int', [eta, ui], [f])
-            if xr is not None:
-                fr_int = ca.Function('fr_int', [eta, ui], [fr])
-        else:
-            raise ValueError("The number of controls must be greater than 0.")
-        
-        # Compute the integral of the S matrix
-        if self.n_inputs == 0:
-            S_int = self.integrator(f_int, 0, delta_i, 'auto')
-            S_int_num = ca.Function('S_int_num', [*self.delta], [S_int])
-            self.S_int.append(S_int_num)
-            # if a reference state is given, compute the Sr matrix
-            if xr is not None:
-                Sr_int = self.integrator(fr_int, 0, delta_i, 'auto')
-                Sr_int_num = ca.Function('Sr_int_num', [*self.delta], [Sr_int])
-                self.Sr_int.append(Sr_int_num)
-            
-        else:
-            S_int = self.integrator(f_int, 0, delta_i, ui)
-            S_int_num = ca.Function('S_int_num', [*self.delta, *self.u], [S_int])
-            self.S_int.append(S_int_num)
-            # if a reference state is given, compute the Sr matrix
-            if xr is not None:
-                Sr_int = self.integrator(fr_int, 0, delta_i, ui)
-                Sr_int_num = ca.Function('Sr_int_num', [self.delta, *self.u], [Sr_int])
-                self.Sr_int.append(Sr_int_num)
-            
-        # Debug the matrix S_int (DEBUG)
-        # print(f"deltai: {delta_i}")
-        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
-        # delta_opt = [0.2649, 0.7351]
-        # print(f"S_int_num: {S_int_num(delta_opt)}")
-        
         phi_i = self.transition_matrix(phi_a, phi_f)
+        
+        S_int = ca.SX.zeros(self.n_states + 1, self.n_states + 1)
+        S_int[:self.n_states, :self.n_states] = Li
+        S_int[:self.n_states, self.n_states:] = Mi @ ui
+        S_int[self.n_states:, :self.n_states] = ca.transpose(Mi @ ui)
+        S_int[self.n_states:, self.n_states:] = ca.transpose(ui) @ Ri @ ui
         
         # If a reference state is given, compute both the Sr matrix and the S matrix
         if xr is not None:
-            Sr = Sr_int + ca.mtimes([ca.transpose(phi_i), Sr_prev])
             S = S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
-            return S, Sr
+            return S
         
         # Compute S matrix
         S = S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
@@ -579,7 +513,7 @@ class SwiLin:
             
         return G
         
-    def cost_function(self, xr=None, E=None):
+    def cost_function(self, R, x0, xr=None, E=None):
         """
         Computes the cost function.
         
@@ -593,17 +527,11 @@ class SwiLin:
         J (ca.SX): The cost function.
         
         """
-        # # Compute the cost function
-        # # J = sum(x0[i] * self.S[0][i, j] * x0[j] for i in range(self.Nx+1) for j in range(self.Nx+1))
-        # J = 0
-        # # for i in range(self.n_states+1):
-        # #     for j in range(self.n_states+1):
-        # #         J += x0[i] * self.S[0][i, j] * x0[j]
-        # x0 = np.reshape(x0, (-1, 1))
-        # J += np.transpose(x0) @ self.S[0] @ x0
-        
-        # if self.n_inputs > 0:
-        #     J += self.G_matrix(R)
+        # Compute the cost function
+        x0 = np.reshape(x0, (-1, 1))
+        J = 0.5 * np.transpose(x0) @ self.S[0] @ x0
+        if self.n_inputs > 0:
+            J += self.G_matrix(R)
             
         # if self.Sr:
         #     # x0 = np.reshape(x0, (-1, 1))
@@ -611,13 +539,13 @@ class SwiLin:
             
         # if xr is not None:
         #     J += -2 * xr.reshape(1, -1) @ E @ self.x[-1] + xr.reshape(1, -1) @ E @ xr
-
-        J = 0
-        for i in range(self.n_phases):
-            if self.n_inputs == 0:
-                J += 1/2 * (ca.transpose(self.x[i]) @ self.L[i] @ self.x[i])
-            else:
-                J += 1/2 * (ca.transpose(self.x[i]) @ self.L[i] @ self.x[i] + 2 * ca.transpose(self.x[i]) @ self.M[i] @ self.u[i] + ca.transpose(self.u[i]) @ self.R[i] @ self.u[i])
+        
+        # J = 0
+        # for i in range(self.n_phases):
+        #     if self.n_inputs == 0:
+        #         J += 1/2 * (ca.transpose(self.x[i]) @ self.L[i] @ self.x[i])
+        #     else:
+        #         J += 1/2 * (ca.transpose(self.x[i]) @ self.L[i] @ self.x[i] + 2 * ca.transpose(self.x[i]) @ self.M[i] @ self.u[i] + ca.transpose(self.u[i]) @ self.R[i] @ self.u[i])
         
         # print(f"Control input: {self.u}")
         # print(f"Phase duration: {type(self.delta)}")
@@ -715,21 +643,21 @@ class SwiLin:
             #     self.G.append(G)
         
         # Initialize the S matrix with the terminal cost
-        # self.S.append(E_)
-        # if xr is not None:
-        #     xr_aug = np.append(xr, 1)
-        #     self.Sr.append(E_@ xr_aug)
+        self.S.append(E_)
+        if xr is not None:
+            xr_aug = np.append(xr, 1)
+            self.Sr.append(E_@ xr_aug)
             
-        # for i in range(self.n_phases-1, -1, -1):
-        #     if xr is not None:
-        #         # Compute the S and Sr matrices
-        #         S, Sr = self.S_matrix(i, Q_, xr_aug)
-        #         self.S.insert(0, S)
-        #         self.Sr.insert(0, Sr)
-        #     else:
-        #         # Compute the S matrix
-        #         S = self.S_matrix(i, Q_)
-        #         self.S.insert(0, S)
+        for i in range(self.n_phases-1, -1, -1):
+            if xr is not None:
+                # Compute the S and Sr matrices
+                S, Sr = self.S_matrix(i)
+                self.S.insert(0, S)
+                # self.Sr.insert(0, Sr)
+            else:
+                # Compute the S matrix
+                S = self.S_matrix(i)
+                self.S.insert(0, S)
             
         #     # Create the S_num function for debugging
         #     if self.n_inputs == 0:
@@ -781,7 +709,7 @@ class SwiLin:
         
         return list_of_arrays
     
-    def plot_optimal_solution(self, delta_opt, *args):
+    def plot_optimal_solution(self, delta_opt, *args, save=False):
         """
         Plot the optimal state trajectory based on the optimized values of u and delta
         Plot the optimal control input if the system is non-autonomous
@@ -806,6 +734,16 @@ class SwiLin:
             x_opt_num = np.array([x_opt[i].elements() for i in range(len(x_opt))])
         else:
             x_opt_num = self.split_list_to_arrays(x_opt, self.n_states)
+            
+        if save:
+            # Save data to a .mat file
+            data_to_save = {
+                'trajectory': x_opt_num,
+                'controls': u_opt,
+                'phases_duration': delta_opt
+            }
+
+            scipy.io.savemat('optimal_results.mat', data_to_save)
             
         
         # Create the time grid
