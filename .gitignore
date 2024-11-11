@@ -3,3 +3,4 @@ __pycache__/
 
 *.mtx
 *.casadi
+/examples/example_2_paper_NAHS.py
