@@ -762,15 +762,16 @@ class SwiLin:
         # Loop through each component of x_opt_num
         for i in range(x_opt_num.shape[1]):
             ax.plot(tgrid, x_opt_num[:, i], label=f'Component {i+1}')
+        ax.set_xlim([0, self.time_horizon])
 
         # Add a legend
-        ax.legend()
+        ax.legend(loc='upper right')
         # Add vertical lines to identify phase changes instants
         time = 0
         for i in range(self.n_phases):
             time = time + delta_opt[i]
             plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)
-        ax.set(xlabel='Time', ylabel='State', title='State trajectory')
+        ax.set(xlabel='Time', ylabel='State')
         ax.grid()
         
         # Plot the control input if the system is non-autonomous
@@ -783,8 +784,9 @@ class SwiLin:
                     # Extract the optimal control input at different time instants
                     input = [sublist[i] for sublist in u_opt_list]
                     ax[i].step(tgrid, np.array(input), where='post')
-                    ax[i].set(xlabel='Time', ylabel='U_'+str(i))
+                    ax[i].set(xlabel='Time', ylabel='Input_'+str(i))
                     ax[i].grid()
+                    ax[i].set_xlim([0, self.time_horizon])
                     # Add vertical lines to identify phase changes instants
                     time = 0
                     for j in range(self.n_phases):
@@ -793,6 +795,7 @@ class SwiLin:
             else:
                 ax.step(tgrid, np.array(u_opt_list), where='post')
                 ax.set(xlabel='Time', ylabel='U')
+                ax.set_xlim([0, self.time_horizon])
                 ax.grid()
                 # Add vertical lines to identify phase changes instants
                 time = 0
@@ -801,4 +804,3 @@ class SwiLin:
                     plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)   
             
         plt.show()
-
