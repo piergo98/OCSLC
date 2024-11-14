@@ -14,7 +14,7 @@ import scipy.io
 
 
 class SwiLin:
-    def __init__(self, n_phases, n_states, n_inputs, time_horizon, auto=False) -> None:
+    def __init__(self, n_phases, n_states, n_inputs, time_horizon, auto=False, propagation='exp') -> None:
         """
         Set up the SwiLin class
         
@@ -42,6 +42,11 @@ class SwiLin:
         self.time_horizon = time_horizon
         
         self.auto = auto
+        
+        # Define the propagation method: 'exp' for matrix exponential, 'int' for numerical integration
+        if propagation not in ['exp', 'int']:
+            raise ValueError("The propagation method must be 'exp' or 'int'.")
+        self.propagation = propagation
         
         # Define the system's variables
         self.x = []
@@ -167,16 +172,26 @@ class SwiLin:
         numpy.ndarray: The result of the integral computation.
         """
         
-        # Following "Computing Integrals Involving the Matrix Exponential" by C. F. Van Loan
-        # We compute the system's state evolution using the matrix exponential
+        # # Following "Computing Integrals Involving the Matrix Exponential" by C. F. Van Loan
+        # # We compute the system's state evolution using the matrix exponential
         
-        dyn1 = np.hstack((A, B))
-        dyn2 = np.zeros((B.shape[1], A.shape[0]+B.shape[1]))
-        dyn = np.vstack((dyn1, dyn2))
+        # dyn1 = np.hstack((A, B))
+        # dyn2 = np.zeros((B.shape[1], A.shape[0]+B.shape[1]))
+        # dyn = np.vstack((dyn1, dyn2))
         
-        # Compute the integral as a matrix exponential
-        expm_dyn = self.expm(dyn, tmax-tmin)
-        integral_result = expm_dyn[:A.shape[0], A.shape[0]:]
+        # # Compute the integral as a matrix exponential
+        # expm_dyn = self.expm(dyn, tmax-tmin)
+        # integral_result = expm_dyn[:A.shape[0], A.shape[0]:]
+        
+        # Define the symbolic variable
+        s = ca.SX.sym('s') 
+
+        # Define the function to be integrate
+        f = self.expm(A, (tmax-s)) @ B
+
+        int_function = ca.Function('int', [*ca.symvar(tmax), s], [f])
+    
+        integral_result = self.integrator(int_function, tmin, tmax)
         
         # print(f"Integral result: {ca.symvar(integral_result)}")
         
@@ -225,7 +240,7 @@ class SwiLin:
             
         return n_terms_max
     
-    def mat_exp_prop(self, index, Q, R):
+    def _mat_exp_prop_exp(self, index, Q, R):
         """
         Compute matrix exponential properties.
 
@@ -276,8 +291,6 @@ class SwiLin:
         if self.n_inputs > 0:
             ui = self.u[index]
         
-            # Compute the integral of the system matrix and input matrix over the time interval
-            # phi_f_i_ = self.compute_integral(A, B, 0, delta_i)
             phi_f_i_ = G3
             
             phi_f_i = phi_f_i_ @ ui
@@ -299,6 +312,74 @@ class SwiLin:
             return Ei, phi_f_i, Hi, Li, Mi, Ri
         else:
             return Ei, ca.SX.zeros(0), ca.SX.zeros(0), Li, ca.SX.zeros(0), ca.SX.zeros(0)
+        
+    def _mat_exp_prop_int(self, index):
+        """
+        Compute matrix exponential properties.
+
+        Args:
+        index   (int): The index of the mode.
+
+        Returns:
+        Ei      (ca.SX): The matrix exponential of Ai*delta_i.
+        phi_f_i (ca.SX): The integral part multiplied by the control input ui.
+        Hi      (ca.SX): A list of matrices constructed in the loop, based on phi_f_i_ and Ai.
+        """        
+        # Define the system matrices for the given index
+        A = self.A[index]
+        B = self.B[index]
+                
+        # Extract the phase duration
+        delta_i = self.delta[index]
+        
+        # Compute matrix exponential
+        Ei = self.expm(A, delta_i)
+        
+        # Distinct case for autonomous systems
+        # Extract the control input
+        if self.n_inputs > 0:
+            ui = self.u[index]
+        
+            # Compute the integral of the system matrix and input matrix over the time interval
+            phi_f_i_ = self.compute_integral(A, B, 0, delta_i)
+            
+            phi_f_i = phi_f_i_ @ ui
+        
+        # Create the H matrix related to the i-th mode (only for the non-autonomous case)
+        if self.n_inputs > 0:
+            Hi = []
+            
+            # Fill the Hk matrix with the k-th column of phi_f_i_ (integral term)
+            Hk = ca.SX.sym('Hi', self.n_states + 1, self.n_states + 1)
+            Hk = 0*Hk
+            for k in range(ui.shape[0]):
+                Hk[:self.n_states, self.n_states] =  phi_f_i_[:, k]
+                Hi.append(Hk)
+        
+            return Ei, phi_f_i, Hi, ca.SX.zeros(0), ca.SX.zeros(0), ca.SX.zeros(0)
+        else:
+            return Ei, ca.SX.zeros(0), 0, ca.SX.zeros(0), ca.SX.zeros(0), ca.SX.zeros(0)
+        
+    def mat_exp_prop(self, index, Q, R):
+        """
+        Compute matrix exponential properties.
+
+        Args:
+        index   (int): The index of the mode.
+
+        Returns:
+        Ei      (ca.SX): The matrix exponential of Ai*delta_i.
+        phi_f_i (ca.SX): The integral part multiplied by the control input ui.
+        Hi      (ca.SX): A list of matrices constructed in the loop, based on phi_f_i_ and Ai.
+        Li      (ca.SX): Matrix for the cost function
+        Mi      (ca.SX): Matrix for the cost function
+        Ri      (ca.SX): Matrix for the cost function
+        
+        """        
+        if self.propagation == 'exp':
+            return self._mat_exp_prop_exp(index, Q, R)
+        else:
+            return self._mat_exp_prop_int(index)
         
     def _propagate_state(self, x0):
         self.x = [x0]
@@ -381,7 +462,7 @@ class SwiLin:
         
         return D
     
-    def S_matrix(self, index, xr=None):
+    def _S_matrix_exp(self, index, xr=None):
         """
         Computes the S matrix for the given index.
         If a reference state is given, it computes the Sr matrix in order to minimize the error
@@ -432,6 +513,147 @@ class SwiLin:
         S = S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
         
         return S
+    
+    def _S_matrix_int(self, index, Q, xr=None):
+        """
+        Computes the S matrix for the given index.
+        If a reference state is given, it computes the Sr matrix in order to minimize the error
+        between the reference state and the state trajectory.
+        
+        Args:
+        index   (int):      The index of the mode.
+        Q       (np.array): The weight matrix.
+        xr      (np.array): The reference state.
+        
+        Returns:
+        S       (ca.SX):    The S matrix.
+        Optional:
+        Sr      (ca.SX):    The Sr matrix.
+        
+        """
+        eta = ca.SX.sym('eta')
+        # Define the system matrices for the given index
+        A = self.A[index]
+        B = self.B[index]
+        
+        # Extract the control input
+        ui = self.u[index]
+        
+        # Extract the phase duration
+        delta_i = self.delta[index]
+        
+        # Extract the autonomous and non-autonomous parts of the state
+        phi_a = self.E[index]
+        phi_f = self.phi_f[index]
+        
+        # print(f"S_matrix: {self.S[0]}")
+        # Extract the S matrix of the previous iteration
+        S_prev = self.S[0]
+        
+        if xr is not None:
+            Sr_prev = self.Sr[0]
+        
+        # Compute the integral term
+        phi_a_t = self.expm(A, eta)
+        phi_f_t = self.compute_integral(A, B, 0, eta)
+        # print(f"phi_a_t: {phi_f_t}")
+        
+        if self.n_inputs == 0:
+            phi_t = self.transition_matrix(phi_a_t, phi_f_t)
+        elif self.n_inputs > 0:
+            phi_t = self.transition_matrix(phi_a_t, phi_f_t@ui)
+        else:
+            raise ValueError("The number of controls must be greater than 0.")
+        
+        # Check the transition matrix (DEBUG)
+        # trans = ca.Function('trans', [eta], [phi_t])
+        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
+        # print(f"Transition: {trans(delta_opt[index])}")
+        
+        # Integral term that updates the S matrix
+        f = ca.transpose(phi_t) @ Q @ phi_t
+        
+        if xr is not None:
+            # Integral term that updates  the Sr matrix
+            fr = ca.transpose(phi_t) @ Q @ xr
+        
+        # Debug the matrix f (DEBUG)
+        # f_num = ca.Function('f_num', [eta], [f])
+        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
+        # print(f"f_num: {f_num(delta_opt[index])}")
+        
+        if self.n_inputs == 0:
+            f_int = ca.Function('f_int', [eta], [f])
+            if xr is not None:
+                fr_int = ca.Function('fr_int', [eta], [fr])
+        elif self.n_inputs > 0:
+            f_int = ca.Function('f_int', [eta, ui], [f])
+            if xr is not None:
+                fr_int = ca.Function('fr_int', [eta, ui], [fr])
+        else:
+            raise ValueError("The number of controls must be greater than 0.")
+        
+        # Compute the integral of the S matrix
+        if self.n_inputs == 0:
+            S_int = self.integrator(f_int, 0, delta_i, 'auto')
+            S_int_num = ca.Function('S_int_num', [*self.delta], [S_int])
+            self.S_int.append(S_int_num)
+            # if a reference state is given, compute the Sr matrix
+            if xr is not None:
+                Sr_int = self.integrator(fr_int, 0, delta_i, 'auto')
+                Sr_int_num = ca.Function('Sr_int_num', [*self.delta], [Sr_int])
+                self.Sr_int.append(Sr_int_num)
+            
+        else:
+            S_int = self.integrator(f_int, 0, delta_i, ui)
+            S_int_num = ca.Function('S_int_num', [*self.delta, *self.u], [S_int])
+            self.S_int.append(S_int_num)
+            # if a reference state is given, compute the Sr matrix
+            if xr is not None:
+                Sr_int = self.integrator(fr_int, 0, delta_i, ui)
+                Sr_int_num = ca.Function('Sr_int_num', [self.delta, *self.u], [Sr_int])
+                self.Sr_int.append(Sr_int_num)
+            
+        # Debug the matrix S_int (DEBUG)
+        # print(f"deltai: {delta_i}")
+        # delta_opt = [0.1002, 0.1972, 0.1356, 0.2088, 0.1249, 0.2334]
+        # delta_opt = [0.2649, 0.7351]
+        # print(f"S_int_num: {S_int_num(delta_opt)}")
+        
+        phi_i = self.transition_matrix(phi_a, phi_f)
+        
+        # If a reference state is given, compute both the Sr matrix and the S matrix
+        if xr is not None:
+            Sr = Sr_int + ca.mtimes([ca.transpose(phi_i), Sr_prev])
+            S = S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
+            return S, Sr
+        
+        # Compute S matrix
+        S = S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
+        
+        return S    
+    
+    def S_matrix(self, index, Q, xr=None):
+        """
+        Computes the S matrix for the given index.
+        If a reference state is given, it computes the Sr matrix in order to minimize the error
+        between the reference state and the state trajectory.
+        
+        Args:
+        index   (int):      The index of the mode.
+        Q       (np.array): The weight matrix.
+        xr      (np.array): The reference state.
+        
+        Returns:
+        S       (ca.SX):    The S matrix.
+        Optional:
+        Sr      (ca.SX):    The Sr matrix.
+        
+        """
+        if self.propagation == 'exp':
+            return self._S_matrix_exp(index, xr)
+        else:
+            return self._S_matrix_int(index, Q, xr)
         
     def C_matrix(self, index, Q):
         """
@@ -531,7 +753,7 @@ class SwiLin:
         x0 = np.reshape(x0, (-1, 1))
         J = 0.5 * np.transpose(x0) @ self.S[0] @ x0
         if self.n_inputs > 0:
-            J += self.G_matrix(R)
+            J += 0.5 * self.G_matrix(R)
             
         # if self.Sr:
         #     # x0 = np.reshape(x0, (-1, 1))
@@ -633,16 +855,17 @@ class SwiLin:
             self.M.append(Mi)
             self.R.append(Ri)
         
-            # if self.n_inputs > 0:
+            if self.n_inputs > 0:
             #     # Compute the D matrix
             #     # D = self.D_matrix(i, Q_)
             #     # self.D.append(D)
             
-            #     # Compute the G matrix
-            #     G = self.G_matrix(R)
-            #     self.G.append(G)
+                # Compute the G matrix
+                G = self.G_matrix(R)
+                self.G.append(G)
         
-        # Initialize the S matrix with the terminal cost
+        
+        # Initialize the S matrix with the terminal cost (if needed)
         self.S.append(E_)
         if xr is not None:
             xr_aug = np.append(xr, 1)
@@ -651,12 +874,12 @@ class SwiLin:
         for i in range(self.n_phases-1, -1, -1):
             if xr is not None:
                 # Compute the S and Sr matrices
-                S, Sr = self.S_matrix(i)
+                S, Sr = self.S_matrix(i, Q_)
                 self.S.insert(0, S)
                 # self.Sr.insert(0, Sr)
             else:
                 # Compute the S matrix
-                S = self.S_matrix(i)
+                S = self.S_matrix(i, Q_)
                 self.S.insert(0, S)
             
         #     # Create the S_num function for debugging
@@ -738,6 +961,9 @@ class SwiLin:
         if save:
             # Save data to a .mat file
             data_to_save = {
+                'n_states': self.n_states,
+                'time_horizon': self.time_horizon,
+                'n_phases': self.n_phases,
                 'trajectory': x_opt_num,
                 'controls': u_opt,
                 'phases_duration': delta_opt
@@ -794,7 +1020,7 @@ class SwiLin:
                         plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)
             else:
                 ax.step(tgrid, np.array(u_opt_list), where='post')
-                ax.set(xlabel='Time', ylabel='U')
+                ax.set(xlabel='Time', ylabel='Input')
                 ax.set_xlim([0, self.time_horizon])
                 ax.grid()
                 # Add vertical lines to identify phase changes instants

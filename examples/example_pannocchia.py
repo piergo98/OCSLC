@@ -23,7 +23,7 @@ def test_non_autonomous_switched_linear_pannocchia():
     
     x0 = np.array([1.3440, -4.5850, 5.6470])
 
-    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=False, x0=x0)    
+    swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=False, x0=x0, propagation='int')    
 
     Q = 1. * np.eye(n_states)
     R = 0.1 * np.eye(n_inputs)

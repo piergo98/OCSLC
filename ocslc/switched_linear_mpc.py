@@ -1,6 +1,7 @@
 import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.io
 
 from .switched_linear import SwiLin
 
@@ -14,7 +15,7 @@ class SwitchedLinearMPC(SwiLin):
             self.ubg = ubg
             self.name = name
     
-    def __init__(self, model, n_phases, time_horizon, auto=False, multiple_shooting=False, x0=None, inspect=False) -> None:
+    def __init__(self, model, n_phases, time_horizon, auto=False, multiple_shooting=False, x0=None, propagation='exp' ,inspect=False) -> None:
         self._check_model_structure(model)
         n_states = model['A'][0].shape[0]
         n_inputs = model['B'][0].shape[1]
@@ -22,7 +23,7 @@ class SwitchedLinearMPC(SwiLin):
         # Debug mode
         self.inspect = inspect
         
-        super().__init__(n_phases, n_states, n_inputs, time_horizon, auto)
+        super().__init__(n_phases, n_states, n_inputs, time_horizon, auto, propagation)
         self.load_model(model)
         
         # Store flags
@@ -305,17 +306,27 @@ class SwitchedLinearMPC(SwiLin):
             delta_i = self.deltas[i]
             Li = ca.Function('Li', [self.delta[i]], [self.L[i]])
             if self.n_inputs == 0:
-                # Compute ith integral of the objective function using matrix exponential Van Loan method
-                L += 0.5 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
+                if self.propagation == 'exp':
+                    # Compute ith integral of the objective function using matrix exponential Van Loan method
+                    L += 0.5 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
+                elif self.propagation == 'int':
+                    L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i)) * delta_i
+                else:
+                    raise ValueError("Invalid propagation method.")
             else:
                 u_i = self.inputs[i]
                 Mi = ca.Function('Mi', [self.delta[i]], [self.M[i]])
                 Ri = ca.Function('Ri', [self.delta[i]], [self.R[i]])
-                # Compute ith integral of the objective function using matrix exponential Van Loan method
-                L += 0.5 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i 
-                         + ca.transpose(u_i) @ Ri(delta_i) @ u_i + ca.transpose(u_i) @ R*delta_i @ u_i)
+                if self.propagation == 'exp':
+                    # Compute ith integral of the objective function using matrix exponential Van Loan method
+                    L += 0.5 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i 
+                            + ca.transpose(u_i) @ Ri(delta_i) @ u_i + ca.transpose(u_i) @ R*delta_i @ u_i)
+                elif self.propagation == 'int':
+                    
+                    L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i) + ca.transpose(u_i) @ R @ u_i) * delta_i
         
-        # L += ca.transpose(self.states[-1]-x_ref) @ E @ (self.states[-1]-x_ref)
+        if self.propagation == 'int':
+            L += ca.transpose(self.states[-1]) @ Q @ (self.states[-1])
         
         self.cost = L
         
@@ -473,7 +484,7 @@ class SwitchedLinearMPC(SwiLin):
             
         self.solver = ca.nlpsol('solver', solver, problem, opts)
                          
-    def solve(self):
+    def solve(self, save=False):
         lbg = np.empty(0)
         ubg = np.empty(0)
         for constraint in self.constraints:
@@ -504,9 +515,31 @@ class SwitchedLinearMPC(SwiLin):
             
         deltas_opt = sol[self.shift-1::self.shift]
         
-        print(f"Optimal control input: {inputs_opt}")
-        print(f"Optimal phase durations: {deltas_opt}")
-        print(f"Optimal switching instants: {np.cumsum(deltas_opt)}")
+        if save:
+            # Save data to a .mat file
+            if self.multiple_shooting:
+                data_to_save = {
+                    'n_states': self.n_states,
+                    'time_horizon': self.time_horizon,
+                    'n_phases': self.n_phases,
+                    'trajectory': states_opt,
+                    'control': inputs_opt,
+                    'phases_duration': deltas_opt,
+                }
+            else:
+                data_to_save = {
+                    'n_states': self.n_states,
+                    'time_horizon': self.time_horizon,
+                    'n_phases': self.n_phases,
+                    'controls': inputs_opt,
+                    'phases_duration': deltas_opt,
+                }
+
+            scipy.io.savemat('optimal_results.mat', data_to_save)
+        
+        # print(f"Optimal control input: {inputs_opt}")
+        # print(f"Optimal phase durations: {deltas_opt}")
+        # print(f"Optimal switching instants: {np.cumsum(deltas_opt)}")
 
         return inputs_opt, deltas_opt, states_opt
     
