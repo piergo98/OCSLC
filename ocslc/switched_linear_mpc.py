@@ -322,7 +322,6 @@ class SwitchedLinearMPC(SwiLin):
                     L += 0.5 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i 
                             + ca.transpose(u_i) @ Ri(delta_i) @ u_i + ca.transpose(u_i) @ R*delta_i @ u_i)
                 elif self.propagation == 'int':
-                    
                     L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i) + ca.transpose(u_i) @ R @ u_i) * delta_i
         
         if self.propagation == 'int':
@@ -438,6 +437,8 @@ class SwitchedLinearMPC(SwiLin):
         acceptable_tol = kwargs.get('acceptable_tol', 1e-6)
         max_iter = kwargs.get('max_iter', 5000)
         print_level = kwargs.get('print_level', 3)
+        print_time = kwargs.get('print_time', True)
+        verbose = kwargs.get('verbose', False)
         
         g = []
         for constraint in self.constraints:
@@ -461,7 +462,8 @@ class SwitchedLinearMPC(SwiLin):
                 'ipopt.tol': tol,
                 'ipopt.acceptable_tol': acceptable_tol,
                 'ipopt.print_level': print_level,
-                'print_time': True,
+                'print_time': print_time,
+                'verbose': verbose,
                 # 'ipopt.warm_start_init_point': 'yes',
             }
                 
