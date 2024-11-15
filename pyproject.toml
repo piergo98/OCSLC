@@ -21,6 +21,7 @@ dependencies = [
     "casadi",
     "matplotlib",
     'numpy',
+    'pandas',
     'PyQt5',
     'scipy',
 ]
