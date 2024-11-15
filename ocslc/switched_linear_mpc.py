@@ -165,7 +165,7 @@ class SwitchedLinearMPC(SwiLin):
         if self.inspect and inspect_inputs is not None:
             # [INSPECT] Use the provided debug inputs
             inputs = np.array(inspect_inputs)
-            print("Inspect mode: Using provided inspect inputs")
+            print("Inspect mode: Use provided inspect inputs")
             
             # Split the provided inputs vector according to the input vector dimension
             inputs_split = [inputs[i:i+self.n_inputs] for i in range(0, len(inputs), self.n_inputs)]
@@ -181,7 +181,7 @@ class SwitchedLinearMPC(SwiLin):
         if self.multiple_shooting:
             # Set inputs bounds
             for i in range(self.n_states, self.n_opti, self.shift):
-                if self.inspect:
+                if self.inspect and inspect_inputs is not None:
                     self.lb_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
                     self.ub_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
                     inspect_index += 1
@@ -197,7 +197,7 @@ class SwitchedLinearMPC(SwiLin):
         else:
             if self.n_inputs > 0:
                 for i in range(0, self.n_opti, self.shift):
-                    if self.inspect:
+                    if self.inspect and inspect_inputs is not None:
                         self.lb_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
                         self.ub_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
                         inspect_index += 1
@@ -501,6 +501,8 @@ class SwitchedLinearMPC(SwiLin):
         
         sol = r['x'].full().flatten()
         self.opt_cost = r['f'].full().flatten()
+        self.constraints_value = r['g'].full().flatten()
+        self.optimal_lambda_g = r['lam_g'].full().flatten()
         
         self.opt_var_0 = sol
         
