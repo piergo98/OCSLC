@@ -33,6 +33,8 @@ def test_non_autonomous_switched_linear_comparison():
     iter_array = [221, 850]
     multiple_shooting = False
     for iterations in iter_array:
+        start = time.time()
+        
         swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=multiple_shooting, x0=x0, inspect=False)
 
         swi_lin_mpc.precompute_matrices(x0, Q, R, E)
@@ -148,6 +150,8 @@ def test_non_autonomous_switched_linear_inspection():
     optimal_costs = []
     shooting = [False, True]
     for case in shooting:
+        start = time.time()
+        
         swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=case, x0=x0, propagation='int',inspect=True)
 
         swi_lin_mpc.precompute_matrices(x0, Q, R, E)
@@ -208,6 +212,8 @@ def test_non_autonomous_switched_linear_inspection():
     # swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
     
 def test_non_autonomous_switched_linear_toy():
+    start = time.time()
+    
     model = {
         'A': [np.array([[-1, 0], [1, 2]])],
         'B': [np.array([[1], [1]])],
