@@ -322,10 +322,11 @@ class SwitchedLinearMPC(SwiLin):
                     L += 0.5 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i 
                             + ca.transpose(u_i) @ Ri(delta_i) @ u_i + ca.transpose(u_i) @ R*delta_i @ u_i)
                 elif self.propagation == 'int':
-                    L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i) + ca.transpose(u_i) @ R @ u_i) * delta_i
+                    L += 0.5 * (ca.transpose(ca.vertcat(x_i, ca.SX.ones(1,1))) @ self.S_int[i](delta_i, u_i) @ (ca.vertcat(x_i, ca.SX.ones(1,1))) + (ca.transpose(u_i) @ R @ u_i) * delta_i)
+                    # L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i) + ca.transpose(u_i) @ R @ u_i) * delta_i
         
         if self.propagation == 'int':
-            L += ca.transpose(self.states[-1]) @ Q @ (self.states[-1])
+            L += ca.transpose(self.states[-1]) @ E @ (self.states[-1])
         
         self.cost = L
         

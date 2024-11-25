@@ -67,6 +67,7 @@ class SwiLin:
         self.phi_f = []
         self.autonomous_evol = []
         self.forced_evol = []
+        self.evol = []
         self.H = []
         self.J = []
         self.L = []
@@ -555,6 +556,7 @@ class SwiLin:
         
         # Compute the integral term
         phi_a_t = self.expm(A, eta)
+        
         phi_f_t = self.compute_integral(A, B, 0, eta)
         # print(f"phi_a_t: {phi_f_t}")
         
@@ -588,6 +590,7 @@ class SwiLin:
                 fr_int = ca.Function('fr_int', [eta], [fr])
         elif self.n_inputs > 0:
             f_int = ca.Function('f_int', [eta, ui], [f])
+            self.evol.append(f_int)
             if xr is not None:
                 fr_int = ca.Function('fr_int', [eta, ui], [fr])
         else:
@@ -606,7 +609,7 @@ class SwiLin:
             
         else:
             S_int = self.integrator(f_int, 0, delta_i, ui)
-            S_int_num = ca.Function('S_int_num', [*self.delta, *self.u], [S_int])
+            S_int_num = ca.Function('S_int_num', [delta_i, ui], [S_int])
             self.S_int.append(S_int_num)
             # if a reference state is given, compute the Sr matrix
             if xr is not None:
