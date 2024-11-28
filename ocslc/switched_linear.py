@@ -14,7 +14,7 @@ import scipy.io
 
 
 class SwiLin:
-    def __init__(self, n_phases, n_states, n_inputs, time_horizon, auto=False, propagation='exp') -> None:
+    def __init__(self, n_phases, n_states, n_inputs, time_horizon, auto=False, propagation='exp', plot="display") -> None:
         """
         Set up the SwiLin class
         
@@ -47,6 +47,10 @@ class SwiLin:
         if propagation not in ['exp', 'int']:
             raise ValueError("The propagation method must be 'exp' or 'int'.")
         self.propagation = propagation
+        
+        if plot not in ['display', 'save']:
+            raise ValueError("The plot method must be 'display' or 'save'.")
+        self.plot = plot
         
         # Define the system's variables
         self.x = []
@@ -1001,7 +1005,9 @@ class SwiLin:
             time = time + delta_opt[i]
             plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)
         ax.set(xlabel='Time', ylabel='State')
-        ax.grid()
+        # ax.grid()
+        if self.plot == 'save':
+            plt.savefig('optimal_state.pdf', format='pdf', bbox_inches='tight')
         
         # Plot the control input if the system is non-autonomous
         if self.n_inputs > 0:
@@ -1012,9 +1018,9 @@ class SwiLin:
                 for i in range(self.n_inputs):
                     # Extract the optimal control input at different time instants
                     input = [sublist[i] for sublist in u_opt_list]
-                    ax[i].step(tgrid, np.array(input), where='post')
+                    ax[i].step(tgrid, np.array(input), where='post', linewidth=2)
                     ax[i].set(xlabel='Time', ylabel='Input_'+str(i))
-                    ax[i].grid()
+                    # ax[i].grid()
                     ax[i].set_xlim([0, self.time_horizon])
                     # Add vertical lines to identify phase changes instants
                     time = 0
@@ -1022,14 +1028,17 @@ class SwiLin:
                         time = time + delta_opt[j]
                         plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)
             else:
-                ax.step(tgrid, np.array(u_opt_list), where='post')
+                ax.step(tgrid, np.array(u_opt_list), where='post', linewidth=2)
                 ax.set(xlabel='Time', ylabel='Input')
                 ax.set_xlim([0, self.time_horizon])
-                ax.grid()
+                # ax.grid()
                 # Add vertical lines to identify phase changes instants
                 time = 0
                 for i in range(self.n_phases):
                     time = time + delta_opt[i]
                     plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)   
-            
-        plt.show()
+        
+        if self.plot == 'save':
+            plt.savefig('optimal_input.pdf', format='pdf', bbox_inches='tight')
+        elif self.plot == 'display':
+            plt.show()

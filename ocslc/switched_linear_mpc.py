@@ -15,7 +15,12 @@ class SwitchedLinearMPC(SwiLin):
             self.ubg = ubg
             self.name = name
     
-    def __init__(self, model, n_phases, time_horizon, auto=False, multiple_shooting=False, x0=None, propagation='exp' ,inspect=False) -> None:
+    def __init__(
+        self, model, n_phases, time_horizon, auto=False,
+        multiple_shooting=False, x0=None, propagation='exp' ,inspect=False,
+        hybrid=False,
+        plot='display',
+    ) -> None:
         self._check_model_structure(model)
         n_states = model['A'][0].shape[0]
         n_inputs = model['B'][0].shape[1]
@@ -23,8 +28,10 @@ class SwitchedLinearMPC(SwiLin):
         # Debug mode
         self.inspect = inspect
         
-        super().__init__(n_phases, n_states, n_inputs, time_horizon, auto, propagation)
+        super().__init__(n_phases, n_states, n_inputs, time_horizon, auto, propagation, plot)
         self.load_model(model)
+        
+        self.hybrid = hybrid
         
         # Store flags
         self.multiple_shooting = multiple_shooting
@@ -318,14 +325,22 @@ class SwitchedLinearMPC(SwiLin):
                 Mi = ca.Function('Mi', [self.delta[i]], [self.M[i]])
                 Ri = ca.Function('Ri', [self.delta[i]], [self.R[i]])
                 if self.propagation == 'exp':
-                    # Compute ith integral of the objective function using matrix exponential Van Loan method
-                    L += 0.5 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i 
-                            + ca.transpose(u_i) @ Ri(delta_i) @ u_i + ca.transpose(u_i) @ R*delta_i @ u_i)
+                    if self.hybrid:
+                        L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i) + ca.transpose(u_i) @ R @ u_i) * delta_i
+                    else:
+                        # Compute ith integral of the objective function using matrix exponential Van Loan method
+                        L += 0.5 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i 
+                                + ca.transpose(u_i) @ Ri(delta_i) @ u_i + ca.transpose(u_i) @ R*delta_i @ u_i)
+                    
                 elif self.propagation == 'int':
-                    L += 0.5 * (ca.transpose(ca.vertcat(x_i, ca.SX.ones(1,1))) @ self.S_int[i](delta_i, u_i) @ (ca.vertcat(x_i, ca.SX.ones(1,1))) + (ca.transpose(u_i) @ R @ u_i) * delta_i)
-                    # L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i) + ca.transpose(u_i) @ R @ u_i) * delta_i
+                    if self.hybrid:
+                        L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i) + ca.transpose(u_i) @ R @ u_i) * delta_i
+                    else:
+                        L += 0.5 * (ca.transpose(ca.vertcat(x_i, ca.SX.ones(1,1))) @ self.S_int[i](delta_i, u_i) @ (ca.vertcat(x_i, ca.SX.ones(1,1))) + (ca.transpose(u_i) @ R @ u_i) * delta_i)
         
-        if self.propagation == 'int':
+        if self.hybrid:
+            L += ca.transpose(self.states[-1]) @ Q @ (self.states[-1])
+        elif self.propagation == 'int':
             L += ca.transpose(self.states[-1]) @ E @ (self.states[-1])
         
         self.cost = L
