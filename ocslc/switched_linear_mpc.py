@@ -128,7 +128,9 @@ class SwitchedLinearMPC(SwiLin):
         else:
             for _ in range(self.n_phases):
                 temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
-        
+        # plt.plot(temp)
+        # plt.show()
+        # input()
         self.opt_var_0 = np.array(temp)
           
     @staticmethod
@@ -277,32 +279,23 @@ class SwitchedLinearMPC(SwiLin):
             
         raise ValueError(f"Constraint {name} not found.")
         
-    def set_cost_function_single_shooting(self, R, x0, xr=None, E=None):
+    def set_cost_function_single_shooting(self, R, x0):
         '''
         This method sets the cost function for the optimization problem using the single shooting approach.
         '''
         x0_aug = np.append(x0, 1)
         
-        if xr is not None and E is not None:
-            cost = self.cost_function(xr, E)
-        elif xr is not None and E is None:
-            raise ValueError("xr must be provided with E.")
-        elif xr is None and E is not None:
-            raise ValueError("E must be provided with xr.")
-        else:
-            cost = self.cost_function(R, x0_aug)
+        cost = self.cost_function(R, x0_aug)
                 
         if self.n_inputs == 0:
             self.cost = cost(*self.deltas)
         else:
             self.cost = cost(*self.inputs, *self.deltas)
         
-    def set_cost_function_multiple_shooting(self, Q, R, x_ref=None, E=None):
+    def set_cost_function_multiple_shooting(self, Q, R, E=None):
         '''
         This method sets the cost function for the optimization problem using the multiple shooting approach.
         '''
-        if x_ref is None:
-            x_ref = np.zeros(self.n_states)
         if E is None:
             E = np.zeros((self.n_states, self.n_states))
         
@@ -338,21 +331,21 @@ class SwitchedLinearMPC(SwiLin):
                     else:
                         L += 0.5 * (ca.transpose(ca.vertcat(x_i, ca.SX.ones(1,1))) @ self.S_int[i](delta_i, u_i) @ (ca.vertcat(x_i, ca.SX.ones(1,1))) + (ca.transpose(u_i) @ R @ u_i) * delta_i)
         
-        if self.hybrid:
-            L += ca.transpose(self.states[-1]) @ Q @ (self.states[-1])
-        elif self.propagation == 'int':
-            L += ca.transpose(self.states[-1]) @ E @ (self.states[-1])
+        if E is not None:
+            L += 0.5 * ca.transpose(self.states[-1]) @ E @ (self.states[-1])
+        # elif self.propagation == 'int':
+        #     L += 0.5 * ca.transpose(self.states[-1]) @ E @ (self.states[-1])
         
         self.cost = L
         
-    def set_cost_function(self, Q, R, x0, xf=None, E=None):
+    def set_cost_function(self, Q, R, x0, E=None):
         '''
         This method sets the cost function for the optimization problem.
         '''
         if self.multiple_shooting: 
-            self.set_cost_function_multiple_shooting(Q, R, xf, E)
+            self.set_cost_function_multiple_shooting(Q, R, E)
         else:
-            self.set_cost_function_single_shooting(R, x0, xf, E)
+            self.set_cost_function_single_shooting(R, x0, E)
             
     def update_opt_vector(self, x0, inputs_opt, deltas_opt, dt, time_horizon):
         '''

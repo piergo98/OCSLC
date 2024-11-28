@@ -3,6 +3,7 @@ import time
 import casadi as ca
 from matplotlib import pyplot as plt
 import numpy as np
+from scipy.linalg import solve_continuous_are
 import scipy.io
 
 from ocslc.switched_linear_mpc import SwitchedLinearMPC
@@ -215,7 +216,7 @@ def test_non_autonomous_switched_linear_toy():
     start = time.time()
     
     model = {
-        'A': [np.array([[-1, 0], [1, 2]])],
+        'A': [np.array([[-1, 0], [1, -2]])],
         'B': [np.array([[1], [1]])],
     }
 
@@ -223,11 +224,12 @@ def test_non_autonomous_switched_linear_toy():
     n_inputs = model['B'][0].shape[1]
 
     n_phases = 40
-    time_horizon = 1
+    time_horizon = 2
     
     Q = 1000. * np.eye(n_states)
     R = 1. * np.eye(n_inputs)
-    E = 0. * np.eye(n_states)
+    # Solve the Algebraic Riccati Equation
+    P = np.array(solve_continuous_are(model['A'][0], model['B'][0], Q, R))
 
     x0 = np.array([3, 5])
     
@@ -237,7 +239,7 @@ def test_non_autonomous_switched_linear_toy():
 
     swi_lin_mpc = SwitchedLinearMPC(model, n_phases, time_horizon, auto=False, multiple_shooting=multiple_shooting, x0=x0)
 
-    swi_lin_mpc.precompute_matrices(x0, Q, R, E)
+    swi_lin_mpc.precompute_matrices(x0, Q, R, P)
     
     states_lb = np.array([-100, -100])
     states_ub = np.array([100, 100])
@@ -254,11 +256,11 @@ def test_non_autonomous_switched_linear_toy():
 
     # swi_lin_mpc.add_constraint(final_state_constr, final_state_lb, final_state_ub)
 
-    swi_lin_mpc.set_cost_function(Q, R, x0)
+    swi_lin_mpc.set_cost_function(Q, R, x0, P)
 
     swi_lin_mpc.set_initial_guess(time_horizon, x0)
     swi_lin_mpc.create_solver()
-    inputs_opt, deltas_opt, _ = swi_lin_mpc.solve()
+    inputs_opt, deltas_opt, _ = swi_lin_mpc.solve(save=True)
     
     print(f"Execution time: {time.time() - start}")
         
@@ -279,8 +281,11 @@ def test_non_autonomous_switched_linear_toy():
     
     swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
     
+    # obj ms = 1.1549317885709686e+03
+    # ibj ss = 1.1549873979295407e+03
+    
 if __name__ == '__main__':
     start = time.time()
-    test_non_autonomous_switched_linear_inspection()
+    test_non_autonomous_switched_linear_toy()
     # print(f"Execution time: {time.time() - start}")
     print("All tests passed!")

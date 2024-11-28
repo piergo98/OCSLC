@@ -2,6 +2,7 @@ import time
 
 import casadi as ca
 import numpy as np
+from scipy.linalg import solve_continuous_are
 
 from ocslc.switched_linear_mpc import SwitchedLinearMPC
 
@@ -46,9 +47,10 @@ def test_non_autonomous_switched_linear_pannocchia(args):
 
     Q = 1. * np.eye(n_states)
     R = 0.1 * np.eye(n_inputs)
-    E = 0. * np.eye(n_states)
+    # Solve the Algebraic Riccati Equation
+    P = np.array(solve_continuous_are(model['A'][0], model['B'][0], Q, R))
 
-    swi_lin_mpc.precompute_matrices(x0, Q, R, E)
+    swi_lin_mpc.precompute_matrices(x0, Q, R, P)
     
     precompute_time = time.time() - start
     print(f"Precomputation time: {precompute_time}")
@@ -62,7 +64,7 @@ def test_non_autonomous_switched_linear_pannocchia(args):
     if swi_lin_mpc.multiple_shooting:
         swi_lin_mpc.multiple_shooting_constraints(x0)
 
-    swi_lin_mpc.set_cost_function(Q, R, x0)
+    swi_lin_mpc.set_cost_function(Q, R, x0, P)
     
     # Set the initial guess  
     swi_lin_mpc.set_initial_guess(time_horizon, x0)

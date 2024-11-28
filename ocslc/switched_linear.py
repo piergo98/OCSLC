@@ -742,7 +742,7 @@ class SwiLin:
             
         return G
         
-    def cost_function(self, R, x0, xr=None, E=None):
+    def cost_function(self, R, x0):
         """
         Computes the cost function.
         
