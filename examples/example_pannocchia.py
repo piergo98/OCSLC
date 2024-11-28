@@ -93,7 +93,7 @@ if __name__ == '__main__':
         help='Shooting method.'
     )
     parser.add_argument('--hybrid',
-        type=bool, default=False, required=False,
+        type=str, default=False, required=False,
         help='Hybrid method.'
     )
     parser.add_argument('--n_steps',
@@ -105,6 +105,8 @@ if __name__ == '__main__':
         help='How to plot the results.'
     )
     args = parser.parse_args()
+    if args.hybrid in ('False', 'false', '0'):
+        args.hybrid = False
     
     start = time.time()
     test_non_autonomous_switched_linear_pannocchia(args)
