@@ -48,8 +48,8 @@ class SwiLin:
             raise ValueError("The propagation method must be 'exp' or 'int'.")
         self.propagation = propagation
         
-        if plot not in ['display', 'save']:
-            raise ValueError("The plot method must be 'display' or 'save'.")
+        if plot not in ['display', 'save', 'none']:
+            raise ValueError("The plot method must be display, save, or none.")
         self.plot = plot
         
         # Define the system's variables

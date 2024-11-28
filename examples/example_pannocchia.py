@@ -101,7 +101,7 @@ if __name__ == '__main__':
         help='Number of steps.'
     )
     parser.add_argument('--plot',
-        type=str, metavar="{display, save}", default="display", required=False,
+        type=str, metavar="{display, save, none}", default="display", required=False,
         help='How to plot the results.'
     )
     args = parser.parse_args()
