@@ -95,12 +95,6 @@ class SwitchedLinearMPC(SwiLin):
         # Set the total time constraint
         self._set_constraints_deltas()
         
-        # if self.multiple_shooting:
-        #     self.multiple_shooting_constraints(x0)
-        
-        # # Set the initial guess  
-        # self.set_initial_guess(time_horizon, x0) # TO DO
-        
     def set_initial_guess(self, time_horizon, x0=None):
         '''
         This method sets the initial guess for the optimization variables.
@@ -345,7 +339,7 @@ class SwitchedLinearMPC(SwiLin):
         if self.multiple_shooting: 
             self.set_cost_function_multiple_shooting(Q, R, E)
         else:
-            self.set_cost_function_single_shooting(R, x0, E)
+            self.set_cost_function_single_shooting(R, x0)
             
     def update_opt_vector(self, x0, inputs_opt, deltas_opt, dt, time_horizon):
         '''
@@ -525,8 +519,11 @@ class SwitchedLinearMPC(SwiLin):
         
             else:
                 inputs_opt.extend(sol[i:i+self.n_inputs])
-            
+        
         deltas_opt = sol[self.shift-1::self.shift]
+        if not self.multiple_shooting:
+            states_opt = self.state_extraction(deltas_opt, inputs_opt)
+    
         
         if save:
             # Save data to a .mat file
@@ -536,7 +533,7 @@ class SwitchedLinearMPC(SwiLin):
                     'time_horizon': self.time_horizon,
                     'n_phases': self.n_phases,
                     'trajectory': states_opt,
-                    'control': inputs_opt,
+                    'controls': inputs_opt,
                     'phases_duration': deltas_opt,
                 }
             else:
@@ -544,6 +541,7 @@ class SwitchedLinearMPC(SwiLin):
                     'n_states': self.n_states,
                     'time_horizon': self.time_horizon,
                     'n_phases': self.n_phases,
+                    'trajectory': states_opt,
                     'controls': inputs_opt,
                     'phases_duration': deltas_opt,
                 }

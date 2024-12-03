@@ -75,13 +75,16 @@ def test_non_autonomous_switched_linear_pannocchia(args):
     print(f"Setup time: {setup_time}")
     start = time.time()
     
-    inputs_opt, deltas_opt, _ = swi_lin_mpc.solve()
+    inputs_opt, deltas_opt, states_opt = swi_lin_mpc.solve(save=True)
     solving_time = time.time() - start
     print(f"Solving time: {solving_time}")
     print("--------------------------------")
     print(f"Total time: {precompute_time + setup_time + solving_time}")
     
-    swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
+    if swi_lin_mpc.multiple_shooting:
+        swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt, states_opt)
+    else:
+        swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
     
 if __name__ == '__main__':
     import argparse

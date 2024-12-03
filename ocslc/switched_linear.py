@@ -926,7 +926,7 @@ class SwiLin:
                 
         return x_opt
     
-    def split_list_to_arrays(input_list, chunk_size):
+    def split_list_to_arrays(self, input_list, chunk_size):
         '''
         This function splits a list into chunks of the specified size.
         '''
@@ -963,8 +963,9 @@ class SwiLin:
             
             x_opt_num = np.array([x_opt[i].elements() for i in range(len(x_opt))])
         else:
-            x_opt_num = self.split_list_to_arrays(x_opt, self.n_states)
-            
+            x_opt_ = self.split_list_to_arrays(x_opt, self.n_states)
+            x_opt_num = np.vstack(x_opt_)
+
         if save:
             # Save data to a .mat file
             data_to_save = {
@@ -992,9 +993,9 @@ class SwiLin:
         
         # Plot the state trajectory
         fig, ax= plt.subplots()
-        # Loop through each component of x_opt_num
-        for i in range(x_opt_num.shape[1]):
-            ax.plot(tgrid, x_opt_num[:, i], label=f'Component {i+1}')
+        # Loop through each component of x_opt_num and plot it
+        for i in range(self.n_states):
+            ax.plot(tgrid, x_opt_num[:, i], label=f'Component {i+1}')     
         ax.set_xlim([0, self.time_horizon])
 
         # Add a legend
