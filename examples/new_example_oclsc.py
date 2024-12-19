@@ -25,7 +25,7 @@ def test_example_linear_oclsc(args):
     start = time.time()
     
     model = {
-        'A': [np.array([[-0.5, 10, 0.3], [8, -1, -8.25], [1.2, 4, -0.87]])],
+        'A': [np.array([[-0.5, 10, 0.3], [-8, -1, -8.25], [1.2, 4, -0.87]])],
         'B': [np.array([[0.3], [2], [-1]])],
     }
 
@@ -34,7 +34,7 @@ def test_example_linear_oclsc(args):
 
     time_horizon = 5
     
-    x0 = np.array([1.3440, -4.5850, 5.6470])
+    x0 = np.array([0.3440, -4.5850, 2.6570])
 
     swi_lin_mpc = SwitchedLinearMPC(
         model, n_steps, time_horizon, auto=False,
@@ -59,7 +59,7 @@ def test_example_linear_oclsc(args):
     states_lb = np.array([-100, -100, -100])
     states_ub = np.array([100, 100, 100]) 
     
-    swi_lin_mpc.set_bounds(-1, 1, states_lb, states_ub)
+    swi_lin_mpc.set_bounds(-10, 10, states_lb, states_ub)
     
     if swi_lin_mpc.multiple_shooting:
         swi_lin_mpc.multiple_shooting_constraints(x0)
