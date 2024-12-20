@@ -25,16 +25,16 @@ def test_example_linear_oclsc(args):
     start = time.time()
     
     model = {
-        'A': [np.array([[-0.5, 10, 0.3], [-8, -1, -8.25], [1.2, 4, -0.87]])],
-        'B': [np.array([[0.3], [2], [-1]])],
+        'A': [np.array([[1, 0], [-8, -5]])],
+        'B': [np.array([[2], [1]])],
     }
 
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
 
-    time_horizon = 5
+    time_horizon = 1
     
-    x0 = np.array([0.3440, -4.5850, 2.6570])
+    x0 = np.array([1, 0])
 
     swi_lin_mpc = SwitchedLinearMPC(
         model, n_steps, time_horizon, auto=False,
@@ -45,7 +45,7 @@ def test_example_linear_oclsc(args):
         plot=plot,
     )
 
-    Q = 1. * np.eye(n_states)
+    Q = 10. * np.eye(n_states)
     R = 0.1 * np.eye(n_inputs)
     # Solve the Algebraic Riccati Equation
     P = np.array(solve_continuous_are(model['A'][0], model['B'][0], Q, R))
@@ -56,8 +56,8 @@ def test_example_linear_oclsc(args):
     print(f"Precomputation time: {precompute_time}")
     start = time.time()
     
-    states_lb = np.array([-100, -100, -100])
-    states_ub = np.array([100, 100, 100]) 
+    states_lb = np.array([-100, -100])
+    states_ub = np.array([100, 100]) 
     
     swi_lin_mpc.set_bounds(-10, 10, states_lb, states_ub)
     
