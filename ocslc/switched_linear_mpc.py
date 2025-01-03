@@ -95,36 +95,44 @@ class SwitchedLinearMPC(SwiLin):
         # Set the total time constraint
         self._set_constraints_deltas()
         
-    def set_initial_guess(self, time_horizon, x0=None):
+    def set_initial_guess(self, time_horizon, x0=None, initial_state_trajectory=None, initial_control_inputs=None):
         '''
         This method sets the initial guess for the optimization variables.
         '''
         # Check that x0 is provided if multiple shooting is enabled
-        if self.multiple_shooting and x0 is None:
-            raise ValueError("x0 must be provided when multiple shooting is enabled.")
+        # if self.multiple_shooting and x0 is None:
+        #     raise ValueError("x0 must be provided when multiple shooting is enabled.")
         
         u0 = np.zeros(self.n_inputs)
         delta0 = time_horizon / self.n_phases
         
         temp = []
         if self.multiple_shooting:
-            temp += x0.tolist()
-            # Propagate dynamics from initial state
-            for i in range(self.n_phases):
-                if self.n_inputs > 0:
-                    x_next = self.autonomous_evol[i](delta0) @ x0 + self.forced_evol[i](u0, delta0)
-                else:
-                    x_next = self.autonomous_evol[i](delta0) @ x0
-                temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
-                temp += x_next.full().flatten().tolist()
-                
-                x0 = x_next
+            if initial_state_trajectory is not None and initial_control_inputs is not None:
+                temp += initial_state_trajectory[0, :].tolist()
+                for i in range(self.n_phases):
+                    temp += [initial_control_inputs[i]] + [delta0]
+                    temp += initial_state_trajectory[i+1, :].tolist()
+            else:
+                temp += x0.tolist()
+                # Propagate dynamics from initial state
+                for i in range(self.n_phases):
+                    if self.n_inputs > 0:
+                        x_next = self.autonomous_evol[i](delta0) @ x0 + self.forced_evol[i](u0, delta0)
+                    else:
+                        x_next = self.autonomous_evol[i](delta0) @ x0
+                    temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
+                    temp += x_next.full().flatten().tolist()
+                    
+                    x0 = x_next
         else:
-            for _ in range(self.n_phases):
-                temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
-        # plt.plot(temp)
-        # plt.show()
-        # input()
+            if initial_control_inputs is not None:
+                for i in range(self.n_phases):
+                    temp += [initial_control_inputs[i]] + [delta0]
+            else:
+                for _ in range(self.n_phases):
+                    temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
+        
         self.opt_var_0 = np.array(temp)
           
     @staticmethod
