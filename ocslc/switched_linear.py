@@ -871,7 +871,6 @@ class SwiLin:
                 G = self.G_matrix(R)
                 self.G.append(G)
         
-        
         # Initialize the S matrix with the terminal cost (if needed)
         self.S.append(E_)
         if xr is not None:
@@ -1008,7 +1007,7 @@ class SwiLin:
         ax.set(xlabel='Time', ylabel='State')
         # ax.grid()
         if self.plot == 'save':
-            plt.savefig('optimal_state.pdf', format='pdf', bbox_inches='tight')
+            plt.savefig('optimal_state.svg', format='svg', bbox_inches='tight')
         
         # Plot the control input if the system is non-autonomous
         if self.n_inputs > 0:
@@ -1040,6 +1039,6 @@ class SwiLin:
                     plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)   
         
         if self.plot == 'save':
-            plt.savefig('optimal_input.pdf', format='pdf', bbox_inches='tight')
+            plt.savefig('optimal_input.svg', format='svg', bbox_inches='tight')
         elif self.plot == 'display':
             plt.show()

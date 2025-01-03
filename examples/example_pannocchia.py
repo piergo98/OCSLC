@@ -75,7 +75,7 @@ def test_non_autonomous_switched_linear_pannocchia(args):
     print(f"Setup time: {setup_time}")
     start = time.time()
     
-    inputs_opt, deltas_opt, states_opt = swi_lin_mpc.solve(save=True)
+    inputs_opt, deltas_opt, states_opt = swi_lin_mpc.solve()
     solving_time = time.time() - start
     print(f"Solving time: {solving_time}")
     print("--------------------------------")
