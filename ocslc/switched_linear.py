@@ -977,11 +977,33 @@ class SwiLin:
             }
 
             scipy.io.savemat('optimal_results.mat', data_to_save)
-            
         
-        # Create the time grid
+        # Plot the state trajectory
+        state = ca.MX.sym('state', self.n_states)
+        control_input = ca.MX.sym('u', self.n_inputs)
+
+        # It has to be adjusted for switched systems
+        xdot = self.A[0] @ state + self.B[0] @ control_input
+        dae = {'x': state, 'p': control_input, 'ode': xdot}
+
+        x0 = x_opt_num[0, :]
+        traj = [x0]
+        switching_instants = np.cumsum(delta_opt).tolist()
+        time = 0
+        M = 10
+        for switch in switching_instants:
+            dt = (switch - time ) / M
+            for i in range(M):
+                dF = ca.integrator('dF', 'cvodes', dae, 0, dt)
+                idx = switching_instants.index(switch)
+                x0 = dF(x0=x0, p=u_opt[idx])['xf']
+                traj.append(x0.full().flatten())
+            time = switch
+        traj = np.array(traj)
+
+        # Create the time grid mesh
         tgrid = []
-        points = 1
+        points = M
         time = 0
         next_time = 0
         for i in range(self.n_phases):
@@ -990,11 +1012,11 @@ class SwiLin:
             time = time + delta_opt[i]
         tgrid = np.concatenate((tgrid, [self.time_horizon]))
         
-        # Plot the state trajectory
         fig, ax= plt.subplots()
         # Loop through each component of x_opt_num and plot it
-        for i in range(self.n_states):
-            ax.plot(tgrid, x_opt_num[:, i], label=f'Component {i+1}')     
+        for i in range(self.n_states):  
+            ax.plot(tgrid, traj[:, i], label=f'Component {i+1}')  
+            ax.scatter(tgrid[::M], x_opt_num[:, i])
         ax.set_xlim([0, self.time_horizon])
 
         # Add a legend
@@ -1010,6 +1032,7 @@ class SwiLin:
             plt.savefig('optimal_state.svg', format='svg', bbox_inches='tight')
         
         # Plot the control input if the system is non-autonomous
+        
         if self.n_inputs > 0:
             fig, ax = plt.subplots(self.n_inputs, 1)
             u_opt_list = np.reshape(u_opt, (-1, self.n_inputs)).tolist()
@@ -1018,7 +1041,7 @@ class SwiLin:
                 for i in range(self.n_inputs):
                     # Extract the optimal control input at different time instants
                     input = [sublist[i] for sublist in u_opt_list]
-                    ax[i].step(tgrid, np.array(input), where='post', linewidth=2)
+                    ax[i].step(tgrid[::M], np.array(input), where='post', linewidth=2)
                     ax[i].set(xlabel='Time', ylabel='Input_'+str(i))
                     # ax[i].grid()
                     ax[i].set_xlim([0, self.time_horizon])
@@ -1028,7 +1051,7 @@ class SwiLin:
                         time = time + delta_opt[j]
                         plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)
             else:
-                ax.step(tgrid, np.array(u_opt_list), where='post', linewidth=2)
+                ax.step(tgrid[::M], np.array(u_opt_list), where='post', linewidth=2)
                 ax.set(xlabel='Time', ylabel='Input')
                 ax.set_xlim([0, self.time_horizon])
                 # ax.grid()
