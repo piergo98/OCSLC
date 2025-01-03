@@ -31,6 +31,7 @@ def LQR_controller(x0, A, B, P, R, time_horizon, n_states):
 
     traj = np.array(traj)
     control_input = -K @ traj[:, :3].T
+    # control_input = np.clip(control_input, -10, 10)
 
     return traj, control_input.flatten()
 
@@ -59,9 +60,9 @@ def test_example_linear_oclsc(args):
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
 
-    time_horizon = 10
+    time_horizon = 1
     
-    x0 = np.array([-3, 1, 1])
+    x0 = np.array([3, 1, -2])
 
     swi_lin_mpc = SwitchedLinearMPC(
         model, n_steps, time_horizon, auto=False,
@@ -96,7 +97,7 @@ def test_example_linear_oclsc(args):
     # Set the initial guess
     # Set the unconstrained LQR as initial guess
     init_traj, init_controls = LQR_controller(x0, model['A'][0], model['B'][0], P, R, time_horizon, n_states)
-    swi_lin_mpc.set_initial_guess(time_horizon, initial_state_trajectory=init_traj, initial_control_inputs=init_controls)
+    swi_lin_mpc.set_initial_guess(time_horizon, x0, initial_state_trajectory=init_traj, initial_control_inputs=init_controls)
     # swi_lin_mpc.set_initial_guess(time_horizon, x0)
 
     swi_lin_mpc.create_solver('ipopt')
