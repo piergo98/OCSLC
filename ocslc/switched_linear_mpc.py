@@ -72,15 +72,17 @@ class SwitchedLinearMPC(SwiLin):
         # Set bounds for the phase durations
         if self.inspect:
             # [INSPECT] Force the phase durations
-            times = np.array([0.03210398, 0.03505938, 0.03830069, 0.04188936, 0.04590901, 0.05047757,
-                              0.0557692 , 0.06205688, 0.06980505, 0.07990499, 0.0944395 , 0.12068451,
-                              0.28995405, 0.3095119 , 0.33082882, 0.3532854 , 0.37652738, 0.40040063,
-                              0.42485287, 0.44987585, 0.47547918, 0.50167956, 0.52849671, 0.55595177,
-                              0.5840667 , 0.61286399, 0.64236653, 0.67259741, 0.70357978, 0.73533646,
-                              0.76788894, 0.80125299, 0.83541683, 0.8702246 , 0.90480779, 0.93608366,
-                              0.96015295, 0.97739745, 0.99012673, 1.        ])
-            durations = np.diff(times)
-            durations = np.insert(durations, 0, times[0])
+            # times = np.array([0.03210398, 0.03505938, 0.03830069, 0.04188936, 0.04590901, 0.05047757,
+            #                   0.0557692 , 0.06205688, 0.06980505, 0.07990499, 0.0944395 , 0.12068451,
+            #                   0.28995405, 0.3095119 , 0.33082882, 0.3532854 , 0.37652738, 0.40040063,
+            #                   0.42485287, 0.44987585, 0.47547918, 0.50167956, 0.52849671, 0.55595177,
+            #                   0.5840667 , 0.61286399, 0.64236653, 0.67259741, 0.70357978, 0.73533646,
+            #                   0.76788894, 0.80125299, 0.83541683, 0.8702246 , 0.90480779, 0.93608366,
+            #                   0.96015295, 0.97739745, 0.99012673, 1.        ])
+            # durations = np.diff(times)
+            # durations = np.insert(durations, 0, times[0])
+            exp_dist = 1.07**np.arange(80)
+            durations = exp_dist * time_horizon / np.sum(exp_dist)
             for i in range(self.shift-1, self.n_opti, self.shift):
                 self.lb_opt_var[i] = durations[i//self.shift]
                 self.ub_opt_var[i] = durations[i//self.shift]
@@ -95,7 +97,7 @@ class SwitchedLinearMPC(SwiLin):
         # Set the total time constraint
         self._set_constraints_deltas()
         
-    def set_initial_guess(self, time_horizon, x0=None, initial_state_trajectory=None, initial_control_inputs=None):
+    def set_initial_guess(self, time_horizon, x0=None, initial_state_trajectory=None, initial_control_inputs=None, initial_phases_duration=None):
         '''
         This method sets the initial guess for the optimization variables.
         '''
@@ -111,7 +113,10 @@ class SwitchedLinearMPC(SwiLin):
             if initial_state_trajectory is not None and initial_control_inputs is not None:
                 temp += initial_state_trajectory[0, :].tolist()
                 for i in range(self.n_phases):
-                    temp += [initial_control_inputs[i]] + [delta0]
+                    if initial_phases_duration is not None:
+                        temp += [initial_control_inputs[i]] + [initial_phases_duration[i]]
+                    else:
+                        temp += [initial_control_inputs[i]] + [delta0]
                     temp += initial_state_trajectory[i+1, :].tolist()
             else:
                 temp += x0.tolist()
@@ -121,17 +126,28 @@ class SwitchedLinearMPC(SwiLin):
                         x_next = self.autonomous_evol[i](delta0) @ x0 + self.forced_evol[i](u0, delta0)
                     else:
                         x_next = self.autonomous_evol[i](delta0) @ x0
-                    temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
+                        
+                    if initial_phases_duration is not None:
+                        temp += [0] * self.n_inputs + [initial_phases_duration[i]]
+                    else:
+                        temp += [0] * self.n_inputs + [delta0]
+                        
                     temp += x_next.full().flatten().tolist()
                     
                     x0 = x_next
         else:
             if initial_control_inputs is not None:
                 for i in range(self.n_phases):
-                    temp += [initial_control_inputs[i]] + [delta0]
+                    if initial_phases_duration is not None:
+                        temp += [initial_control_inputs[i]] + [initial_phases_duration[i]]
+                    else:
+                        temp += [initial_control_inputs[i]] + [delta0]
             else:
-                for _ in range(self.n_phases):
-                    temp += [0] * self.n_inputs + [time_horizon / self.n_phases]
+                for i in range(self.n_phases):
+                    if initial_phases_duration is not None:
+                        temp += [0] * self.n_inputs + [initial_phases_duration[i]]
+                    else:
+                        temp += [0] * self.n_inputs + [delta0]
         
         self.opt_var_0 = np.array(temp)
           
@@ -158,7 +174,7 @@ class SwitchedLinearMPC(SwiLin):
             if B.shape != B_shape:
                 raise ValueError("All 'B' matrices are not the same size.")
         
-    def set_bounds(self, inputs_lb, inputs_ub, states_lb=None, states_ub=None, inspect_inputs=None):
+    def set_bounds(self, inputs_lb, inputs_ub, states_lb=None, states_ub=None, inspect_inputs=None, inspect_states=None):
         """
         This method sets the lower and upper bounds for the control inputs and states.
         
@@ -173,7 +189,7 @@ class SwitchedLinearMPC(SwiLin):
         if self.multiple_shooting and (states_lb is None or states_ub is None):
             raise ValueError("States bounds must be provided when multiple shooting is enabled.")  
         
-        if self.inspect and inspect_inputs is not None:
+        if inspect_inputs is not None:
             # [INSPECT] Use the provided debug inputs
             inputs = np.array(inspect_inputs)
             print("Inspect mode: Use provided inspect inputs")
@@ -185,33 +201,52 @@ class SwitchedLinearMPC(SwiLin):
             inputs_lb = inputs_split
             inputs_ub = inputs_split
             
-            inspect_index = 0
+            inspect_inputs_index = 0
+            
+        if inspect_states is not None:
+            # [INSPECT] Use the provided debug states
+            states = np.array(inspect_states)
+            print("Inspect mode: Use provided inspect states")
+            
+            # Split the provided states vector according to the state vector dimension
+            states_split = [states[i:i+self.n_states] for i in range(0, len(states), self.n_states)]
+            
+            # Set the state bounds to be the same as the provided states
+            states_lb = states_split
+            states_ub = states_split
+            
+            inspect_states_index = 0
             
             
             
         if self.multiple_shooting:
             # Set inputs bounds
             for i in range(self.n_states, self.n_opti, self.shift):
-                if self.inspect and inspect_inputs is not None:
-                    self.lb_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
-                    self.ub_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
-                    inspect_index += 1
+                if inspect_inputs is not None:
+                    self.lb_opt_var[i:i+self.n_inputs] = inputs_split[inspect_inputs_index]
+                    self.ub_opt_var[i:i+self.n_inputs] = inputs_split[inspect_inputs_index]
+                    inspect_inputs_index += 1
                 else:
                     self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
                     self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
             
             # Set states bounds
             for i in range(0, self.n_opti, self.shift):
-                self.lb_opt_var[i:i+self.n_states] = states_lb
-                self.ub_opt_var[i:i+self.n_states] = states_ub
+                if inspect_states is not None:
+                    self.lb_opt_var[i:i+self.n_states] = states_split[inspect_states_index]
+                    self.ub_opt_var[i:i+self.n_states] = states_split[inspect_states_index]
+                    inspect_states_index += 1
+                else:
+                    self.lb_opt_var[i:i+self.n_states] = states_lb
+                    self.ub_opt_var[i:i+self.n_states] = states_ub
             
         else:
             if self.n_inputs > 0:
                 for i in range(0, self.n_opti, self.shift):
-                    if self.inspect and inspect_inputs is not None:
-                        self.lb_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
-                        self.ub_opt_var[i:i+self.n_inputs] = inputs_split[inspect_index]
-                        inspect_index += 1
+                    if inspect_inputs is not None:
+                        self.lb_opt_var[i:i+self.n_inputs] = inputs_split[inspect_inputs_index]
+                        self.ub_opt_var[i:i+self.n_inputs] = inputs_split[inspect_inputs_index]
+                        inspect_inputs_index += 1
                     else:
                         self.lb_opt_var[i:i+self.n_inputs] = inputs_lb
                         self.ub_opt_var[i:i+self.n_inputs] = inputs_ub
@@ -535,26 +570,16 @@ class SwitchedLinearMPC(SwiLin):
         
         if save:
             # Save data to a .mat file
-            if self.multiple_shooting:
-                data_to_save = {
-                    'n_states': self.n_states,
-                    'time_horizon': self.time_horizon,
-                    'n_phases': self.n_phases,
-                    'trajectory': states_opt,
-                    'controls': inputs_opt,
-                    'phases_duration': deltas_opt,
-                }
-            else:
-                data_to_save = {
-                    'n_states': self.n_states,
-                    'time_horizon': self.time_horizon,
-                    'n_phases': self.n_phases,
-                    'trajectory': states_opt,
-                    'controls': inputs_opt,
-                    'phases_duration': deltas_opt,
-                }
+            data_to_save = {
+                'n_states': self.n_states,
+                'time_horizon': self.time_horizon,
+                'n_phases': self.n_phases,
+                'trajectory': states_opt,
+                'controls': inputs_opt,
+                'phases_duration': deltas_opt,
+            }
 
-            scipy.io.savemat('optimal_results.mat', data_to_save)
+            scipy.io.savemat('optimal_results_hybrid.mat', data_to_save)
         
         # print(f"Optimal control input: {inputs_opt}")
         # print(f"Optimal phase durations: {deltas_opt}")

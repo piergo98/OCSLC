@@ -222,6 +222,7 @@ class SwiLin:
         
         # Number of terms for the Taylor series expansion
         num_terms = self._get_n_terms_expm_approximation()
+        # num_terms = 6
         
         for k in range(1, num_terms+1):
             term = np.linalg.matrix_power(A, k) * ca.power(delta, k) / factorial(k)
@@ -1016,7 +1017,7 @@ class SwiLin:
         # Loop through each component of x_opt_num and plot it
         for i in range(self.n_states):  
             ax.plot(tgrid, traj[:, i], label=f'Component {i+1}')  
-            ax.scatter(tgrid[::M], x_opt_num[:, i])
+            # ax.scatter(tgrid[::M], x_opt_num[:, i])
         ax.set_xlim([0, self.time_horizon])
 
         # Add a legend

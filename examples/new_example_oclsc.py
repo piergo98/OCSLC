@@ -18,7 +18,7 @@ def LQR_controller(x0, A, B, P, R, time_horizon, n_states):
     dae = {'x': state, 'ode': xdot}
 
     traj = [x0]
-    switching_instants = np.linspace(0, time_horizon, 60).tolist()
+    switching_instants = np.linspace(0, time_horizon, 80).tolist()
     time = 0
     M = 1
     for switch in switching_instants:
@@ -60,9 +60,9 @@ def test_example_linear_oclsc(args):
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
 
-    time_horizon = 1
+    time_horizon = 1.0
     
-    x0 = np.array([3, 1, -2])
+    x0 = np.array([-3, 1, 5])
 
     swi_lin_mpc = SwitchedLinearMPC(
         model, n_steps, time_horizon, auto=False,
@@ -94,10 +94,28 @@ def test_example_linear_oclsc(args):
 
     swi_lin_mpc.set_cost_function(Q, R, x0, P)
     
-    # Set the initial guess
+    ## Set the initial guess
+    # Set the initial guess for the phase durations
+    exp_dist = 1.1**np.arange(80)
+    phase_durations = exp_dist * time_horizon / np.sum(exp_dist)
+    
     # Set the unconstrained LQR as initial guess
-    init_traj, init_controls = LQR_controller(x0, model['A'][0], model['B'][0], P, R, time_horizon, n_states)
-    swi_lin_mpc.set_initial_guess(time_horizon, x0, initial_state_trajectory=init_traj, initial_control_inputs=init_controls)
+    init_traj, init_controls = LQR_controller(
+        x0, 
+        model['A'][0], 
+        model['B'][0], 
+        P, 
+        R, 
+        time_horizon, 
+        n_states
+    )
+    
+    swi_lin_mpc.set_initial_guess(
+        time_horizon, x0, 
+        initial_state_trajectory=init_traj, 
+        initial_control_inputs=init_controls, 
+        initial_phases_duration=phase_durations
+    )
     # swi_lin_mpc.set_initial_guess(time_horizon, x0)
 
     swi_lin_mpc.create_solver('ipopt')
@@ -133,7 +151,7 @@ if __name__ == '__main__':
         help='Hybrid method.'
     )
     parser.add_argument('--n_steps',
-        type=int, metavar="int", default=60, required=False,
+        type=int, metavar="int", default=80, required=False,
         help='Number of steps.'
     )
     parser.add_argument('--plot',

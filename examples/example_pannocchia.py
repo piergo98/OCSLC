@@ -2,6 +2,7 @@ import time
 
 import casadi as ca
 import numpy as np
+import scipy.io
 from scipy.linalg import solve_continuous_are
 
 from ocslc.switched_linear_mpc import SwitchedLinearMPC
@@ -37,10 +38,14 @@ def test_non_autonomous_switched_linear_pannocchia(args):
     x0 = np.array([1.3440, -4.5850, 5.6470])
 
     swi_lin_mpc = SwitchedLinearMPC(
-        model, n_steps, time_horizon, auto=False,
+        model, 
+        n_steps, 
+        time_horizon, 
+        auto=False,
         x0=x0,
         multiple_shooting=multiple_shooting,
         propagation=integrator,
+        inspect = False,
         hybrid=hybrid,
         plot=plot,
     )
@@ -56,10 +61,21 @@ def test_non_autonomous_switched_linear_pannocchia(args):
     print(f"Precomputation time: {precompute_time}")
     start = time.time()
     
+    loaded_data = scipy.io.loadmat('optimal_results_hybrid.mat')
+    fixed_states = loaded_data['trajectory'][0]
+    fixed_inputs = loaded_data['controls'][0]
+    
     states_lb = np.array([-100, -100, -100])
     states_ub = np.array([100, 100, 100]) 
     
-    swi_lin_mpc.set_bounds(-1, 1, states_lb, states_ub)
+    swi_lin_mpc.set_bounds(
+        -1, 
+        1, 
+        states_lb, 
+        states_ub, 
+        inspect_inputs=fixed_inputs,
+        inspect_states=fixed_states,
+    )
     
     if swi_lin_mpc.multiple_shooting:
         swi_lin_mpc.multiple_shooting_constraints(x0)
@@ -67,7 +83,14 @@ def test_non_autonomous_switched_linear_pannocchia(args):
     swi_lin_mpc.set_cost_function(Q, R, x0, P)
     
     # Set the initial guess  
-    swi_lin_mpc.set_initial_guess(time_horizon, x0)
+    exp_dist = 0.99**np.arange(80)
+    phase_durations = exp_dist * time_horizon / np.sum(exp_dist)
+    
+    swi_lin_mpc.set_initial_guess(
+        time_horizon, 
+        x0, 
+        # initial_phases_duration=phase_durations
+    )
 
     swi_lin_mpc.create_solver('ipopt')
     
