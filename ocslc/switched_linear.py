@@ -1003,31 +1003,8 @@ class SwiLin:
                 )
             tmp = interp(np.linspace(0, self.time_horizon, len(tgrid)))
             traj[:, i] = tmp
-        #     state = ca.MX.sym('state', self.n_states)
-        #     control_input = ca.MX.sym('u', self.n_inputs)
-
-        #     # It has to be adjusted for switched systems
-        #     xdot = self.A[0] @ state + self.B[0] @ control_input
-        #     dae = {'x': state, 'p': control_input, 'ode': xdot}
-
-        #     x0 = x_opt_num[0, :]
-        #     traj = [x0]
-        #     M = 1
-        #     for d in delta_opt:
-        #         dt = d / M
-        #         for i in range(M):
-        #             dF = ca.integrator('dF', 'cvodes', dae, 0, dt)
-        #             idx = delta_opt.tolist().index(d)
-        #             x0 = dF(x0=x0, p=u_opt[idx])['xf']
-        #             traj.append(x0.full().flatten())
-        #     traj = np.array(traj)
-        
+    
         fig, ax= plt.subplots()
-        # Loop through each component of x_opt_num and plot it
-        # if x_opt is not None: 
-        #     for i in range(self.n_states):  
-        #         ax.plot(np.arange(0, self.time_horizon, 1e-3), traj[:, i], label=f'x{i+1}')  
-        #         # ax.scatter(tgrid[::M], x_opt_num[:, i])
         for i in range(self.n_states):  
             ax.plot(tgrid, traj[:, i], label=f'x{i+1}')  
             # ax.scatter(tgrid[::M], x_opt_num[:, i])
