@@ -81,7 +81,7 @@ class SwitchedLinearMPC(SwiLin):
             #                   0.96015295, 0.97739745, 0.99012673, 1.        ])
             # durations = np.diff(times)
             # durations = np.insert(durations, 0, times[0])
-            exp_dist = 1.07**np.arange(80)
+            exp_dist = 1.**np.arange(self.n_phases)
             durations = exp_dist * time_horizon / np.sum(exp_dist)
             for i in range(self.shift-1, self.n_opti, self.shift):
                 self.lb_opt_var[i] = durations[i//self.shift]

@@ -73,8 +73,8 @@ def test_non_autonomous_switched_linear_pannocchia(args):
         1, 
         states_lb, 
         states_ub, 
-        inspect_inputs=fixed_inputs,
-        inspect_states=fixed_states,
+        # inspect_inputs=fixed_inputs,
+        # inspect_states=fixed_states,
     )
     
     if swi_lin_mpc.multiple_shooting:

@@ -9,8 +9,9 @@ import casadi as ca
 import matplotlib.pyplot as plt
 import numpy as np
 
-from scipy.linalg import block_diag
 import scipy.io
+from scipy.interpolate import Akima1DInterpolator
+from scipy.linalg import block_diag
 
 
 class SwiLin:
@@ -980,27 +981,34 @@ class SwiLin:
             scipy.io.savemat('optimal_results.mat', data_to_save)
         
         # Plot the state trajectory
-        state = ca.MX.sym('state', self.n_states)
-        control_input = ca.MX.sym('u', self.n_inputs)
+        M = 1
+        traj = np.zeros((len(np.arange(0, self.time_horizon, 1e-3)), self.n_states))
+        # If the state vector is part of the optimization, resample the state trajectory
+        for i in range(self.n_states):
+            tmp = Akima1DInterpolator(
+                np.linspace(0, self.time_horizon, len(x_opt_num[:, i])), 
+                x_opt_num[:, i],
+                method='makima',
+                )(np.arange(0, self.time_horizon, 1e-3))
+            traj[:, i] = tmp
+        #     state = ca.MX.sym('state', self.n_states)
+        #     control_input = ca.MX.sym('u', self.n_inputs)
 
-        # It has to be adjusted for switched systems
-        xdot = self.A[0] @ state + self.B[0] @ control_input
-        dae = {'x': state, 'p': control_input, 'ode': xdot}
+        #     # It has to be adjusted for switched systems
+        #     xdot = self.A[0] @ state + self.B[0] @ control_input
+        #     dae = {'x': state, 'p': control_input, 'ode': xdot}
 
-        x0 = x_opt_num[0, :]
-        traj = [x0]
-        switching_instants = np.cumsum(delta_opt).tolist()
-        time = 0
-        M = 10
-        for switch in switching_instants:
-            dt = (switch - time ) / M
-            for i in range(M):
-                dF = ca.integrator('dF', 'cvodes', dae, 0, dt)
-                idx = switching_instants.index(switch)
-                x0 = dF(x0=x0, p=u_opt[idx])['xf']
-                traj.append(x0.full().flatten())
-            time = switch
-        traj = np.array(traj)
+        #     x0 = x_opt_num[0, :]
+        #     traj = [x0]
+        #     M = 1
+        #     for d in delta_opt:
+        #         dt = d / M
+        #         for i in range(M):
+        #             dF = ca.integrator('dF', 'cvodes', dae, 0, dt)
+        #             idx = delta_opt.tolist().index(d)
+        #             x0 = dF(x0=x0, p=u_opt[idx])['xf']
+        #             traj.append(x0.full().flatten())
+        #     traj = np.array(traj)
 
         # Create the time grid mesh
         tgrid = []
@@ -1015,11 +1023,15 @@ class SwiLin:
         
         fig, ax= plt.subplots()
         # Loop through each component of x_opt_num and plot it
-        for i in range(self.n_states):  
-            ax.plot(tgrid, traj[:, i], label=f'Component {i+1}')  
-            # ax.scatter(tgrid[::M], x_opt_num[:, i])
+        if x_opt is not None: 
+            for i in range(self.n_states):  
+                ax.plot(np.arange(0, self.time_horizon, 1e-3), traj[:, i], label=f'x{i+1}')  
+                # ax.scatter(tgrid[::M], x_opt_num[:, i])
+        else:
+            for i in range(self.n_states):  
+                ax.plot(tgrid, traj[:, i], label=f'x{i+1}')  
+                # ax.scatter(tgrid[::M], x_opt_num[:, i])
         ax.set_xlim([0, self.time_horizon])
-
         # Add a legend
         ax.legend(loc='upper right')
         # Add vertical lines to identify phase changes instants
