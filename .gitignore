@@ -1,6 +1,11 @@
 __pycache__/
 .venv/
 
-*.mtx
+*.svg
+*.mat
 *.casadi
+*.mtx
+*.pdf
+*.png
+
 /examples/example_2_paper_NAHS.py
