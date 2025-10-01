@@ -87,7 +87,7 @@ class SwitchedLinearMPC(SwiLin):
                 self.lb_opt_var[i] = durations[i//self.shift]
                 self.ub_opt_var[i] = durations[i//self.shift]
         else:
-            self.lb_opt_var[self.shift-1::self.shift] = 0
+            self.lb_opt_var[self.shift-1::self.shift] = 0 #1e-3
             self.ub_opt_var[self.shift-1::self.shift] = time_horizon
         
         # Initialize cost and constraints
@@ -499,6 +499,10 @@ class SwitchedLinearMPC(SwiLin):
         if solver == 'ipopt':        
             opts = {
                 'ipopt.max_iter': max_iter,
+                # 'ipopt.grad_f_constant': 'yes',
+                # 'ipopt.jac_c_constant': 'yes',
+                # 'ipopt.jac_d_constant': 'yes',
+                # 'ipopt.hessian_constant': 'yes',
                 # 'ipopt.gradient_approximation': 'finite-difference-values',
                 # 'ipopt.hessian_approximation': 'limited-memory', 
                 # 'ipopt.hsllib': "/usr/local/libhsl.so",
@@ -515,9 +519,9 @@ class SwitchedLinearMPC(SwiLin):
                 
         elif solver == 'sqpmethod':
             opts = {
-                'qpsol': 'qrqp', 
-                'qpsol_options': {'print_iter': False, 'error_on_fail': False}, 
-                'print_time': False,
+                'qpsol': 'qpoases', 
+                'qpsol_options': {'printLevel': 'none'}, 
+                # 'print_time': False,
             }
             
         elif solver == 'fatrop':
@@ -579,7 +583,7 @@ class SwitchedLinearMPC(SwiLin):
                 'phases_duration': deltas_opt,
             }
 
-            scipy.io.savemat('optimal_results_hybrid.mat', data_to_save)
+            scipy.io.savemat('optimal_results_new.mat', data_to_save)
         
         # print(f"Optimal control input: {inputs_opt}")
         # print(f"Optimal phase durations: {deltas_opt}")

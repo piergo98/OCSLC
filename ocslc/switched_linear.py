@@ -940,11 +940,14 @@ class SwiLin:
         
         return list_of_arrays
     
-    def plot_optimal_solution(self, delta_opt, *args, save=False):
+    def plot_optimal_solution(self, delta_opt, *args, save=False, filename=None):
         """
         Plot the optimal state trajectory based on the optimized values of u and delta
         Plot the optimal control input if the system is non-autonomous
         """    
+        # Check if the filename is provided
+        if save and filename is None:
+            raise ValueError("Filename must be provided for saving the plot.")
         
         # Check if args is not empty and set the input accordingly
         u_opt = args[0] if args else None   
@@ -978,12 +981,12 @@ class SwiLin:
                 'phases_duration': delta_opt
             }
 
-            scipy.io.savemat('optimal_results.mat', data_to_save)
+            scipy.io.savemat(filename + '.mat', data_to_save)
         
         # Plot the state trajectory
         # Create the time grid mesh
         tgrid = []
-        points = 100
+        points = 1000
         time = 0
         next_time = 0
         for i in range(self.n_phases):
@@ -999,11 +1002,11 @@ class SwiLin:
             interp = Akima1DInterpolator(
                 np.linspace(0, self.time_horizon, x_opt_num.shape[0]),
                 x_opt_num[:, i],
-                method='makima',
+                method='akima',
                 )
             tmp = interp(np.linspace(0, self.time_horizon, len(tgrid)))
             traj[:, i] = tmp
-    
+        
         fig, ax= plt.subplots()
         for i in range(self.n_states):  
             ax.plot(tgrid, traj[:, i], label=f'x{i+1}')  
@@ -1019,7 +1022,7 @@ class SwiLin:
         ax.set(xlabel='Time', ylabel='State')
         # ax.grid()
         if self.plot == 'save':
-            plt.savefig('optimal_state.svg', format='svg', bbox_inches='tight')
+            plt.savefig(filename + '_optimal_state.pdf', format='pdf', bbox_inches='tight')
         
         # Plot the control input if the system is non-autonomous
         
@@ -1039,7 +1042,8 @@ class SwiLin:
                     time = 0
                     for j in range(self.n_phases):
                         time = time + delta_opt[j]
-                        plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)
+                        ax[i].axvline(x=time, color='k', linestyle='--', linewidth=0.5)
+                        # plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)
             else:
                 ax.step(tgrid[::points], np.array(u_opt_list), where='post', linewidth=2)
                 ax.set(xlabel='Time', ylabel='Input')
@@ -1052,6 +1056,6 @@ class SwiLin:
                     plt.axvline(x=time, color='k', linestyle='--', linewidth=0.5)   
         
         if self.plot == 'save':
-            plt.savefig('optimal_input.svg', format='svg', bbox_inches='tight')
+            plt.savefig(filename + '_optimal_input.pdf', format='pdf', bbox_inches='tight')
         elif self.plot == 'display':
             plt.show()

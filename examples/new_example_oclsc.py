@@ -32,16 +32,16 @@ def LQR_controller(x0, A, B, P, R, time_horizon, n_states, phase_durations):
     # control_input = np.clip(control_input, -10, 10)
     
     # Plot the control input and the state trajectory
-    plt.figure()
-    plt.subplot(2, 1, 1)
-    plt.plot(traj[:, 0], label='x1')
-    plt.plot(traj[:, 1], label='x2')
-    plt.plot(traj[:, 2], label='x3')
-    plt.legend()
-    plt.subplot(2, 1, 2)
-    plt.plot(control_input[0, :], label='u')
-    plt.legend()
-    plt.show()
+    # plt.figure()
+    # plt.subplot(2, 1, 1)
+    # plt.plot(traj[:, 0], label='x1')
+    # plt.plot(traj[:, 1], label='x2')
+    # plt.plot(traj[:, 2], label='x3')
+    # plt.legend()
+    # plt.subplot(2, 1, 2)
+    # plt.plot(control_input[0, :], label='u')
+    # plt.legend()
+    # plt.show()
     
     
 
@@ -66,15 +66,20 @@ def test_example_linear_oclsc(args):
     
     model = {
         'A': [np.array([[0.5, 0, 0.1], [-4, -2.58, 1.57], [1.12, -1.94, -2.76]])],
-        'B': [np.array([[1], [0], [2]])],
+        'B': [np.array([[1], [0], [0]])],
+        # 'A': [np.array([[-2.1, -25.2, -2.5], [1, 0, 0], [0, 1, 0]])],
+        # 'B': [np.array([[1], [0], [0]])],
+        # 'A': [np.array([[1.63, 0.41], [1, 0]])],
+        # 'B': [np.array([[1], [0]])],
     }
 
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
 
-    time_horizon = 20.0
+    time_horizon = 1.0
     
-    x0 = np.array([-3, 1, 5])
+    x0 = np.array([0.22170992, 0.64490946, 0.13338063])
+    # x0 = np.array([0.45858989, 0.54141011])
 
     swi_lin_mpc = SwitchedLinearMPC(
         model, 
@@ -89,7 +94,7 @@ def test_example_linear_oclsc(args):
         plot=plot,
     )
 
-    Q = 1. * np.eye(n_states)
+    Q = 10. * np.eye(n_states)
     R = 0.1 * np.eye(n_inputs)
     # Solve the Algebraic Riccati Equation
     P = np.array(solve_continuous_are(model['A'][0], model['B'][0], Q, R))
@@ -102,8 +107,11 @@ def test_example_linear_oclsc(args):
     
     states_lb = np.array([-100, -100, -100])
     states_ub = np.array([100, 100, 100]) 
+    # states_lb = np.array([-100, -100])
+    # states_ub = np.array([100, 100]) 
     
-    swi_lin_mpc.set_bounds(-5, 5, states_lb, states_ub)
+    
+    swi_lin_mpc.set_bounds(-10, 10, states_lb, states_ub)
     
     if swi_lin_mpc.multiple_shooting:
         swi_lin_mpc.multiple_shooting_constraints(x0)
@@ -112,7 +120,7 @@ def test_example_linear_oclsc(args):
     
     ## Set the initial guess
     # Set the initial guess for the phase durations
-    exp_dist = 1.**np.arange(80)
+    exp_dist = 1.**np.arange(n_steps)
     phase_durations = exp_dist * time_horizon / np.sum(exp_dist)
     
     # Set the unconstrained LQR as initial guess
@@ -129,13 +137,13 @@ def test_example_linear_oclsc(args):
     
     swi_lin_mpc.set_initial_guess(
         time_horizon, x0, 
-        initial_state_trajectory=init_traj, 
-        initial_control_inputs=init_controls, 
+        # initial_state_trajectory=init_traj, 
+        # initial_control_inputs=init_controls, 
         # initial_phases_duration=phase_durations
     )
     # swi_lin_mpc.set_initial_guess(time_horizon, x0)
 
-    swi_lin_mpc.create_solver('ipopt', print_level=5)
+    swi_lin_mpc.create_solver('sqpmethod', print_level=0)
     
     setup_time = time.time() - start
     print(f"Setup time: {setup_time}")
