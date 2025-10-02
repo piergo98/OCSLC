@@ -16,8 +16,15 @@ class SwitchedLinearMPC(SwiLin):
             self.name = name
     
     def __init__(
-        self, model, n_phases, time_horizon, auto=False,
-        multiple_shooting=False, x0=None, propagation='exp' ,inspect=False,
+        self,
+        model,
+        n_phases,
+        time_horizon,
+        auto=False,
+        multiple_shooting=False,
+        x0=None,
+        propagation='exp',
+        inspect=False,
         hybrid=False,
         plot='display',
     ) -> None:
@@ -33,9 +40,10 @@ class SwitchedLinearMPC(SwiLin):
         
         self.hybrid = hybrid
         
-        # Store flags
+        # Store multiple shooting flag
         self.multiple_shooting = multiple_shooting
-                
+            
+        # Initialize optimization variables
         if not auto:
             self.inputs = [ca.SX.sym(f"U_{i}", self.n_inputs) for i in range(self.n_phases)]
         else:
@@ -94,10 +102,12 @@ class SwitchedLinearMPC(SwiLin):
         self.cost = 0
         self.constraints = []
         
+        
+        
         # Set the total time constraint
         self._set_constraints_deltas()
         
-    def set_initial_guess(self, time_horizon, x0=None, initial_state_trajectory=None, initial_control_inputs=None, initial_phases_duration=None):
+    def set_initial_guess(self, x0=None, initial_state_trajectory=None, initial_control_inputs=None, initial_phases_duration=None):
         '''
         This method sets the initial guess for the optimization variables.
         '''
@@ -106,7 +116,7 @@ class SwitchedLinearMPC(SwiLin):
         #     raise ValueError("x0 must be provided when multiple shooting is enabled.")
         
         u0 = np.zeros(self.n_inputs)
-        delta0 = time_horizon / self.n_phases
+        delta0 = self.time_horizon / self.n_phases
         
         temp = []
         if self.multiple_shooting:
@@ -329,7 +339,7 @@ class SwitchedLinearMPC(SwiLin):
         else:
             self.cost = cost(*self.inputs, *self.deltas)
         
-    def set_cost_function_multiple_shooting(self, Q, R, E=None):
+    def set_cost_function_multiple_shooting(self, Q, R, E=None, reference=None):
         '''
         This method sets the cost function for the optimization problem using the multiple shooting approach.
         '''
@@ -345,9 +355,15 @@ class SwitchedLinearMPC(SwiLin):
             if self.n_inputs == 0:
                 if self.propagation == 'exp':
                     # Compute ith integral of the objective function using matrix exponential Van Loan method
-                    L += 0.5 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
+                    if reference is not None:
+                        L += 0.5 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
+                    else:
+                        L += 0.5 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
                 elif self.propagation == 'int':
-                    L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i)) * delta_i
+                    if reference is not None:
+                        L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i)) * delta_i
+                    else:
+                        L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i)) * delta_i
                 else:
                     raise ValueError("Invalid propagation method.")
             else:
@@ -356,7 +372,9 @@ class SwitchedLinearMPC(SwiLin):
                 Ri = ca.Function('Ri', [self.delta[i]], [self.R[i]])
                 if self.propagation == 'exp':
                     if self.hybrid:
-                        L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i) + ca.transpose(u_i) @ R @ u_i) * delta_i
+                        if reference is not None:
+                            L += 0.5 * (ca.transpose(x_i - reference) @ Q @ (x_i - reference)) * delta_i
+                            # L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i) + ca.transpose(u_i) @ R @ u_i) * delta_i
                     else:
                         # Compute ith integral of the objective function using matrix exponential Van Loan method
                         L += 0.5 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i 
@@ -369,18 +387,21 @@ class SwitchedLinearMPC(SwiLin):
                         L += 0.5 * (ca.transpose(ca.vertcat(x_i, ca.SX.ones(1,1))) @ self.S_int[i](delta_i, u_i) @ (ca.vertcat(x_i, ca.SX.ones(1,1))) + (ca.transpose(u_i) @ R @ u_i) * delta_i)
         
         if E is not None:
-            L += 0.5 * ca.transpose(self.states[-1]) @ E @ (self.states[-1])
+            if reference is not None:
+                L += 0.5 * ca.transpose(self.states[-1] - reference) @ E @ (self.states[-1] - reference)
+            else:
+                L += 0.5 * ca.transpose(self.states[-1]) @ E @ (self.states[-1])
         # elif self.propagation == 'int':
         #     L += 0.5 * ca.transpose(self.states[-1]) @ E @ (self.states[-1])
         
         self.cost = L
-        
-    def set_cost_function(self, Q, R, x0, E=None):
+
+    def set_cost_function(self, Q, R, x0, E=None, reference=None):
         '''
         This method sets the cost function for the optimization problem.
         '''
-        if self.multiple_shooting: 
-            self.set_cost_function_multiple_shooting(Q, R, E)
+        if self.multiple_shooting:
+            self.set_cost_function_multiple_shooting(Q, R, E, reference)
         else:
             self.set_cost_function_single_shooting(R, x0)
             
@@ -591,15 +612,46 @@ class SwitchedLinearMPC(SwiLin):
 
         return inputs_opt, deltas_opt, states_opt
     
-    def step(self, Q, R, x0, xf=None, E=None):
+    def step(self, Q, R, x0, xf=None, E=None, prev_inputs=None, prev_deltas=None):
+        # Update the initial guess with the new measured state
         self._propagate_state(x0)
         
+        # Update the multiple shooting constraints
+        if self.multiple_shooting:
+            self.multiple_shooting_constraints(x0, update=True)
+            
+        # Set the cost function
+        self.set_cost_function(Q, R, x0, E)
+        
+        # Warm start with previous solution if available
+        if prev_inputs is not None and prev_deltas is not None:
+            try:
+                # Simple warm start: shift previous solution and repeat last input
+                warm_inputs = np.roll(prev_inputs, -1)
+                warm_inputs[-1] = prev_inputs[-1]  # Repeat last input
+                warm_deltas = prev_deltas.copy()   # Keep same time distribution
+                
+                self.set_initial_guess(
+                    x0,
+                    initial_control_inputs=warm_inputs,
+                    initial_phases_duration=warm_deltas
+                )
+            except:
+                # Fallback to default initial guess
+                self.set_initial_guess(x0)
+        else:
+            self.set_initial_guess(x0)
+
         # Set bounds for the first state
         self.lb_opt_var[:self.n_states] = x0
         self.ub_opt_var[:self.n_states] = x0
         
-        self.set_cost_function(Q, R, x0, xf, E)
-        
-        self.create_solver()
+        self.create_solver(
+            solver='ipopt', 
+            print_level=5, 
+            verbose=False,
+            tol=1e-6,
+            max_iter=100
+        )
         
         return self.solve()
