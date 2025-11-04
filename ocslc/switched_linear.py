@@ -463,7 +463,7 @@ class SwiLin:
             arg = ca.mtimes([ca.transpose(Hij_t), Q, phi_t]) + ca.mtimes([ca.transpose(phi_t), Q, Hij_t])
         
             # Compute D matrix
-            f = ca.Function('f', [eta, ui], [arg])
+            f = ca.Function('f', [eta, ui], [0.5*arg])
             Dij = self.integrator(f, 0, delta_i, ui)
             D.append(Dij)
         
@@ -605,7 +605,7 @@ class SwiLin:
         # Compute the integral of the S matrix
         if self.n_inputs == 0:
             S_int = self.integrator(f_int, 0, delta_i, 'auto')
-            S_int_num = ca.Function('S_int_num', [*self.delta], [S_int])
+            S_int_num = ca.Function('S_int_num', [*self.delta], [0.5*S_int])
             self.S_int.append(S_int_num)
             # if a reference state is given, compute the Sr matrix
             if xr is not None:
@@ -615,12 +615,12 @@ class SwiLin:
             
         else:
             S_int = self.integrator(f_int, 0, delta_i, ui)
-            S_int_num = ca.Function('S_int_num', [delta_i, ui], [S_int])
+            S_int_num = ca.Function('S_int_num', [delta_i, ui], [0.5*S_int])
             self.S_int.append(S_int_num)
             # if a reference state is given, compute the Sr matrix
             if xr is not None:
                 Sr_int = self.integrator(fr_int, 0, delta_i, ui)
-                Sr_int_num = ca.Function('Sr_int_num', [self.delta, *self.u], [Sr_int])
+                Sr_int_num = ca.Function('Sr_int_num', [self.delta, *self.u], [0.5*Sr_int])
                 self.Sr_int.append(Sr_int_num)
             
         # Debug the matrix S_int (DEBUG)
@@ -693,7 +693,7 @@ class SwiLin:
         # Extract the S matrix of the previous iteration
         S_prev = self.S[index+1]
         
-        C = Q + ca.transpose(M) @ S_prev + S_prev @ M
+        C = 0.5*Q + ca.transpose(M) @ S_prev + S_prev @ M
         
         return C
            
@@ -739,7 +739,7 @@ class SwiLin:
         
         G = 0
         for i in range(self.n_phases):
-            pippo = (ca.transpose(self.u[i]) @ R @ self.u[i]) * self.delta[i]
+            pippo = 0.5 *(ca.transpose(self.u[i]) @ R @ self.u[i]) * self.delta[i]
             G += pippo
             
         return G
@@ -808,12 +808,16 @@ class SwiLin:
         # Create the augmented state vectors
         x_aug = ca.SX.sym('x_aug', self.n_states + 1)
         x_next_aug = ca.SX.sym('x_next_aug', self.n_states + 1)
-        x_aug[:self.n_states] = self.x[:, index]
-        x_next_aug[:self.n_states] = self.x[:, index+1]
+        x_aug[:self.n_states] = self.x[index]
+        x_aug[self.n_states] = 1
+        x_next_aug[:self.n_states] = self.x[index+1]
+        x_next_aug[self.n_states] = 1
         
+        R_ = ca.SX(R)
+
         # Extract the control input
-        ui = self.u[:, index]
-        
+        ui = self.u[index]
+
         # Extract the phase duration
         delta_i = self.delta[index]
         
@@ -825,15 +829,23 @@ class SwiLin:
         
         # Extract the D matrix of the current iteration
         D = self.D[index]
-        
-        # Compute the gradient of the cost function with respect to the control input      
+        # print(f"D: {type(D)}, N: {type(N)}, C: {type(C)}")
+        # Compute the gradient of the cost function with respect to the control input
         du = []
         for j in range(self.n_inputs):
-            du_j = 2 * ui[j] * R[j, j] * delta_i + ca.mtimes([ca.transpose(x_aug), D, x_aug]) + ca.mtimes([ca.transpose(x_next_aug), N, x_next_aug])
+            # D and N are lists (one matrix per input). Index the j-th element.
+            Dij = D[j] if isinstance(D, (list, tuple)) else D
+            Nij = N[j] if isinstance(N, (list, tuple)) else N
+
+            term_r = ui[j] * R_[j, j] * delta_i
+            term_d = ca.mtimes([ca.transpose(x_aug), Dij, x_aug]) if Dij is not None else 0
+            term_n = ca.mtimes([ca.transpose(x_next_aug), Nij, x_next_aug]) if Nij is not None else 0
+
+            du_j = term_r + term_d + term_n
             du.append(du_j)
-        
+
         # Compute the gradient of the cost function with respect to the phase duration
-        d_delta = ca.mtimes([ca.transpose(ui), R, ui]) + ca.mtimes([ca.transpose(x_next_aug), C, x_next_aug])
+        d_delta = 0.5 * ca.mtimes([ca.transpose(ui), R_, ui]) + ca.mtimes([ca.transpose(x_next_aug), C, x_next_aug])
         
         return du, d_delta
     
@@ -849,8 +861,8 @@ class SwiLin:
         xr  (np.array): The reference state.
         """  
         # Augment the weight matrices
-        Q_ = block_diag(Q, 0)
-        E_ = block_diag(E, 0)
+        Q_ = ca.SX(block_diag(Q, 0))
+        E_ = ca.SX(block_diag(E, 0))
         
         for i in range(self.n_phases):
             # Compute the matrix exponential properties
@@ -865,20 +877,20 @@ class SwiLin:
             self.R.append(Ri)
         
             if self.n_inputs > 0:
-            #     # Compute the D matrix
-            #     # D = self.D_matrix(i, Q_)
-            #     # self.D.append(D)
+                # Compute the D matrix
+                D = self.D_matrix(i, Q_)
+                self.D.append(D)
             
                 # Compute the G matrix
                 G = self.G_matrix(R)
                 self.G.append(G)
         
         # Initialize the S matrix with the terminal cost (if needed)
-        self.S.append(E_)
+        self.S.append(0.5*E_)
         if xr is not None:
             xr_aug = np.append(xr, 1)
-            self.Sr.append(E_@ xr_aug)
-            
+            self.Sr.append(0.5*E_@ xr_aug)
+
         for i in range(self.n_phases-1, -1, -1):
             if xr is not None:
                 # Compute the S and Sr matrices
@@ -897,6 +909,14 @@ class SwiLin:
         #         S_num = ca.Function('S_num', [*self.delta, *self.u], [S])
                 
         #     self.S_num.insert(0, S_num)
+        
+        # Compute the C and N matrices
+        for i in range(self.n_phases):
+            C = self.C_matrix(i, Q_)
+            self.C.append(C)
+            if self.n_inputs > 0:
+                N = self.N_matrix(i)
+                self.N.append(N)
                 
         # Propagate the state using the computed matrices.
         self._propagate_state(x0)
