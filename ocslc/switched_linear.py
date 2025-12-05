@@ -278,7 +278,8 @@ class SwiLin:
         C[self.n_states:2*self.n_states, self.n_states:2*self.n_states] = -np.transpose(A)
         C[self.n_states:2*self.n_states, 2*self.n_states:3*self.n_states] = Q
         C[2*self.n_states:3*self.n_states, 2*self.n_states:3*self.n_states] = A
-        C[2*self.n_states:3*self.n_states, 3*self.n_states:] = B
+        if not self.auto:
+                C[2*self.n_states:3*self.n_states, 3*self.n_states:] = B
         
         # Compute matrix exponential
         exp_C = self.expm(C, delta_i)
@@ -318,7 +319,7 @@ class SwiLin:
         
             return Ei, phi_f_i, Hi, Li, Mi, Ri
         else:
-            return Ei, ca.SX.zeros(0), ca.SX.zeros(0), Li, ca.SX.zeros(0), ca.SX.zeros(0)
+            return Ei, Li
         
     def _mat_exp_prop_int(self, index):
         """
@@ -488,7 +489,10 @@ class SwiLin:
         """
         # Extract the autonomous and non-autonomous parts of the state
         phi_a = self.E[index]
-        phi_f = self.phi_f[index]
+        if not self.auto:
+            phi_f = self.phi_f[index]
+        else:
+            phi_f = ca.SX.zeros(self.n_states + 1)
         
         # Extract the input (if present)
         if self.n_inputs > 0:
@@ -496,8 +500,9 @@ class SwiLin:
         
         # Extract the matrices for the integral term
         Li = self.L[index]
-        Mi = self.M[index]
-        Ri = self.R[index]
+        if not self.auto:
+            Mi = self.M[index]
+            Ri = self.R[index]
         
         # print(f"S_matrix: {self.S[0]}")
         # Extract the S matrix of the previous iteration
@@ -507,9 +512,10 @@ class SwiLin:
         
         S_int = ca.SX.zeros(self.n_states + 1, self.n_states + 1)
         S_int[:self.n_states, :self.n_states] = Li
-        S_int[:self.n_states, self.n_states:] = Mi @ ui
-        S_int[self.n_states:, :self.n_states] = ca.transpose(Mi @ ui)
-        S_int[self.n_states:, self.n_states:] = ca.transpose(ui) @ Ri @ ui
+        if self.n_inputs > 0:
+            S_int[:self.n_states, self.n_states:] = Mi @ ui
+            S_int[self.n_states:, :self.n_states] = ca.transpose(Mi @ ui)
+            S_int[self.n_states:, self.n_states:] = ca.transpose(ui) @ Ri @ ui
         
         # If a reference state is given, compute both the Sr matrix and the S matrix
         if xr is not None:
@@ -517,7 +523,7 @@ class SwiLin:
             return S
         
         # Compute S matrix
-        S = S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
+        S = 0.5 * S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
         
         return S
     
@@ -762,7 +768,7 @@ class SwiLin:
         x0 = np.reshape(x0, (-1, 1))
         J = 0.5 * np.transpose(x0) @ self.S[0] @ x0
         if self.n_inputs > 0:
-            J += 0.5 * self.G_matrix(R)
+            J += self.G_matrix(R)
             
         # if self.Sr:
         #     # x0 = np.reshape(x0, (-1, 1))
@@ -785,6 +791,7 @@ class SwiLin:
         if self.n_inputs == 0:
             cost = ca.Function('cost', [*self.delta], [J])
         else:
+            # print(*self.u, *self.delta)
             cost = ca.Function('cost', [*self.u, *self.delta], [J])
             
         # print(f"Cost function: {ca.evalf(J)}")
@@ -866,15 +873,21 @@ class SwiLin:
         
         for i in range(self.n_phases):
             # Compute the matrix exponential properties
-            Ei, phi_f_i, Hi, Li, Mi, Ri = self.mat_exp_prop(i, Q, R)
+            if self.auto:
+                Ei, Li = self.mat_exp_prop(i, Q, R)
+            else:
+                Ei, phi_f_i, Hi, Li, Mi, Ri = self.mat_exp_prop(i, Q, R)
+                self.phi_f.append(phi_f_i)
+                self.forced_evol.append(ca.Function('forced_evol', [self.u[i], self.delta[i]], [phi_f_i]) )
+                self.H.append(Hi)
+                self.M.append(Mi)
+                self.R.append(Ri)    
+                
+                
             self.E.append(Ei)
             self.autonomous_evol.append(ca.Function('autonomous_evol', [self.delta[i]], [Ei]) )
-            self.phi_f.append(phi_f_i)
-            self.forced_evol.append(ca.Function('forced_evol', [self.u[i], self.delta[i]], [phi_f_i]) )
-            self.H.append(Hi)
             self.L.append(Li)
-            self.M.append(Mi)
-            self.R.append(Ri)
+            
         
             if self.n_inputs > 0:
                 # Compute the D matrix
@@ -911,12 +924,12 @@ class SwiLin:
         #     self.S_num.insert(0, S_num)
         
         # Compute the C and N matrices
-        for i in range(self.n_phases):
-            C = self.C_matrix(i, Q_)
-            self.C.append(C)
-            if self.n_inputs > 0:
-                N = self.N_matrix(i)
-                self.N.append(N)
+        # for i in range(self.n_phases):
+        #     C = self.C_matrix(i, Q_)
+        #     self.C.append(C)
+        #     if self.n_inputs > 0:
+        #         N = self.N_matrix(i)
+        #         self.N.append(N)
                 
         # Propagate the state using the computed matrices.
         self._propagate_state(x0)
