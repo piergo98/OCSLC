@@ -644,7 +644,7 @@ class SwiLin:
             return S, Sr
         
         # Compute S matrix
-        S = S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
+        S = 0.5 * S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
         
         return S    
     
