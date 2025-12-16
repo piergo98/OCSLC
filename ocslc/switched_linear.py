@@ -523,7 +523,7 @@ class SwiLin:
             return S
         
         # Compute S matrix
-        S = 0.5 * S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
+        S = S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
         
         return S
     
@@ -899,10 +899,10 @@ class SwiLin:
                 self.G.append(G)
         
         # Initialize the S matrix with the terminal cost (if needed)
-        self.S.append(0.5*E_)
+        self.S.append(E_)
         if xr is not None:
             xr_aug = np.append(xr, 1)
-            self.Sr.append(0.5*E_@ xr_aug)
+            self.Sr.append(E_@ xr_aug)
 
         for i in range(self.n_phases-1, -1, -1):
             if xr is not None:
