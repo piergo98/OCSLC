@@ -29,6 +29,8 @@ def test_non_autonomous_switched_linear_pannocchia(args):
         'A': [np.array([[-0.1, 0, 0], [0, -2, -6.25], [0, 4, 0]])],
         'B': [np.array([[0.25], [2], [0]])],
     }
+    # print("--------------------------------")
+    # print(np.linalg.eigvals(model['A'][0]))
 
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
@@ -61,9 +63,9 @@ def test_non_autonomous_switched_linear_pannocchia(args):
     print(f"Precomputation time: {precompute_time}")
     start = time.time()
     
-    loaded_data = scipy.io.loadmat('optimal_results_hybrid.mat')
-    fixed_states = loaded_data['trajectory'][0]
-    fixed_inputs = loaded_data['controls'][0]
+    # loaded_data = scipy.io.loadmat('optimal_results_hybrid.mat')
+    # fixed_states = loaded_data['trajectory'][0]
+    # fixed_inputs = loaded_data['controls'][0]
     
     states_lb = np.array([-100, -100, -100])
     states_ub = np.array([100, 100, 100]) 
@@ -83,13 +85,28 @@ def test_non_autonomous_switched_linear_pannocchia(args):
     swi_lin_mpc.set_cost_function(Q, R, x0, P)
     
     # Set the initial guess  
-    exp_dist = 0.99**np.arange(80)
+    exp_dist = 1.0**np.arange(80)
     phase_durations = exp_dist * time_horizon / np.sum(exp_dist)
     
+    # Starting from x0, compute the unconstrained LQR optimal inputs
+    # and states as initial guess
+    K_lqr = np.linalg.inv(R + model['B'][0].T @ P @ model['B'][0]) @ (model['B'][0].T @ P @ model['A'][0])
+    xk = x0.copy()
+    x_init = [xk.flatten()]
+    u_init = []
+    for i in range(n_steps):
+        uk = ca.DM(-K_lqr @ xk)
+        xk = swi_lin_mpc.autonomous_evol[i](phase_durations[i]) @ xk + swi_lin_mpc.forced_evol[i](uk, phase_durations[i])
+        x_init.append(xk.full().flatten())
+        u_init.append(uk)
+    x_init = np.array(x_init).reshape((n_steps+1, n_states))
+    u_init = np.array(u_init).reshape((n_steps, n_inputs))
+    
     swi_lin_mpc.set_initial_guess(
-        time_horizon, 
         x0, 
-        # initial_phases_duration=phase_durations
+        initial_state_trajectory=x_init, 
+        initial_control_inputs=u_init,
+        initial_phases_duration=phase_durations
     )
 
     swi_lin_mpc.create_solver('ipopt')
@@ -113,12 +130,12 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Description')
     parser.add_argument('--integrator',
-        type=str, metavar="{int, exp}", default='int', required=False,
-        help='Integration method to use. Default is int.'
+        type=str, metavar="{int, exp}", default='exp', required=False,
+        help='Integration method to use. Default is exp.'
     )
     parser.add_argument('--shooting',
-        type=str, metavar="{ss, ms}", default='ss', required=False,
-        help='Shooting method.'
+        type=str, metavar="{ss, ms}", default='ms', required=False,
+        help='Shooting method. Default is ms.'
     )
     parser.add_argument('--hybrid',
         type=str, default=False, required=False,

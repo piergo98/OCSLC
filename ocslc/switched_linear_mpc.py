@@ -110,6 +110,8 @@ class SwitchedLinearMPC(SwiLin):
     def set_initial_guess(self, x0=None, initial_state_trajectory=None, initial_control_inputs=None, initial_phases_duration=None):
         '''
         This method sets the initial guess for the optimization variables.
+        The initial state trajecotry needs to be provided as a 2D array where each row is a state vector at a given phase.
+        Same as for the initial control inputs.
         '''
         # Check that x0 is provided if multiple shooting is enabled
         # if self.multiple_shooting and x0 is None:
@@ -124,9 +126,9 @@ class SwitchedLinearMPC(SwiLin):
                 temp += initial_state_trajectory[0, :].tolist()
                 for i in range(self.n_phases):
                     if initial_phases_duration is not None:
-                        temp += [initial_control_inputs[i]] + [initial_phases_duration[i]]
+                        temp += initial_control_inputs[i, :].tolist() + [initial_phases_duration[i]]
                     else:
-                        temp += [initial_control_inputs[i]] + [delta0]
+                        temp += initial_control_inputs[i, :].tolist() + [delta0]
                     temp += initial_state_trajectory[i+1, :].tolist()
             else:
                 temp += x0.tolist()
@@ -149,16 +151,15 @@ class SwitchedLinearMPC(SwiLin):
             if initial_control_inputs is not None:
                 for i in range(self.n_phases):
                     if initial_phases_duration is not None:
-                        temp += [initial_control_inputs[i]] + [initial_phases_duration[i]]
+                        temp += initial_control_inputs[i, :].tolist() + [initial_phases_duration[i]]
                     else:
-                        temp += [initial_control_inputs[i]] + [delta0]
+                        temp += initial_control_inputs[i, :].tolist() + [delta0]
             else:
                 for i in range(self.n_phases):
                     if initial_phases_duration is not None:
                         temp += [0] * self.n_inputs + [initial_phases_duration[i]]
                     else:
                         temp += [0] * self.n_inputs + [delta0]
-        
         self.opt_var_0 = np.array(temp)
           
     @staticmethod
@@ -506,6 +507,7 @@ class SwitchedLinearMPC(SwiLin):
         print_level = kwargs.get('print_level', 3)
         print_time = kwargs.get('print_time', True)
         verbose = kwargs.get('verbose', False)
+        hessian_constant = kwargs.get('hessian_constant', 'no')
         
         g = []
         for constraint in self.constraints:
@@ -519,11 +521,12 @@ class SwitchedLinearMPC(SwiLin):
         
         if solver == 'ipopt':        
             opts = {
+                'expand': True,
                 'ipopt.max_iter': max_iter,
                 # 'ipopt.grad_f_constant': 'yes',
                 # 'ipopt.jac_c_constant': 'yes',
                 # 'ipopt.jac_d_constant': 'yes',
-                # 'ipopt.hessian_constant': 'yes',
+                'ipopt.hessian_constant': hessian_constant,
                 # 'ipopt.gradient_approximation': 'finite-difference-values',
                 # 'ipopt.hessian_approximation': 'limited-memory', 
                 # 'ipopt.hsllib': "/usr/local/libhsl.so",
@@ -547,9 +550,10 @@ class SwitchedLinearMPC(SwiLin):
             
         elif solver == 'fatrop':
             opts = {
-                'structure_detection': 'auto',
-                'debug': True,
-                'equality': [True for _ in range(self.n_states * (self.n_phases)+1)],
+                'expand': True,
+                # 'structure_detection': 'auto',
+                # 'debug': True,
+                # 'equality': [True for _ in range(self.n_states * (self.n_phases)+1)],
             }
             
         else:
