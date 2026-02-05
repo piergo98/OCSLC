@@ -4,6 +4,7 @@ import casadi as ca
 import numpy as np
 import scipy.io
 from scipy.linalg import solve_continuous_are
+import matplotlib.pyplot as plt
 
 from ocslc.switched_linear_mpc import SwitchedLinearMPC
 
@@ -27,7 +28,7 @@ def test_non_autonomous_switched_linear_constrained(args):
     
     model = {
         'A': [np.array([[-0.5, -4.0], [4.0, -0.5]])],
-        'B': [np.array([[0.25], [2.0]])],
+        'B': [np.array([[0.0], [2.0]])],
     }
     # print("--------------------------------")
     # print(np.linalg.eigvals(model['A'][0]))
@@ -35,9 +36,9 @@ def test_non_autonomous_switched_linear_constrained(args):
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
 
-    time_horizon = 3.0
+    time_horizon = 5.0
     
-    x0 = np.array([1.0, -1.0])
+    x0 = np.array([-1.0, -1.0])
 
     swi_lin_mpc = SwitchedLinearMPC(
         model, 
@@ -52,8 +53,8 @@ def test_non_autonomous_switched_linear_constrained(args):
         plot=plot,
     )
 
-    Q = 1. * np.eye(n_states)
-    R = 0.1 * np.eye(n_inputs)
+    Q = 10. * np.eye(n_states)
+    R = 5. * np.eye(n_inputs)
     # Solve the Algebraic Riccati Equation
     P = np.array(solve_continuous_are(model['A'][0], model['B'][0], Q, R))
 
@@ -68,11 +69,13 @@ def test_non_autonomous_switched_linear_constrained(args):
     # fixed_inputs = loaded_data['controls'][0]
     
     states_lb = np.array([-100.0, -100.0])
-    states_ub = np.array([2.0, 2.0]) 
+    states_ub = np.array([0.2, 0.2]) 
+    control_lb = np.array([-2.0])
+    control_ub = np.array([2.0])
     
     swi_lin_mpc.set_bounds(
-        -5.0, 
-        5.0, 
+        control_lb, 
+        control_ub, 
         states_lb, 
         states_ub, 
         # inspect_inputs=fixed_inputs,
@@ -80,127 +83,7 @@ def test_non_autonomous_switched_linear_constrained(args):
     )
     
     if swi_lin_mpc.multiple_shooting:
-        swi_lin_mpc.multiple_shooting_constraints(x0)
-
-    swi_lin_mpc.set_cost_function(Q, R, x0, P)
-    
-    # Set the initial guess  
-    exp_dist = 1.0**np.arange(80)
-    phase_durations = exp_dist * time_horizon / np.sum(exp_dist)
-    
-    # Starting from x0, compute the unconstrained LQR optimal inputs
-    # and states as initial guess
-    K_lqr = np.linalg.inv(R + model['B'][0].T @ P @ model['B'][0]) @ (model['B'][0].T @ P @ model['A'][0])
-    xk = x0.copy()
-    x_init = [xk.flatten()]
-    u_init = []
-    for i in range(n_steps):
-        uk = ca.DM(-K_lqr @ xk)
-        xk = swi_lin_mpc.autonomous_evol[i](phase_durations[i]) @ xk + swi_lin_mpc.forced_evol[i](uk, phase_durations[i])
-        x_init.append(xk.full().flatten())
-        u_init.append(uk)
-    x_init = np.array(x_init).reshape((n_steps+1, n_states))
-    u_init = np.array(u_init).reshape((n_steps, n_inputs))
-    
-    
-    swi_lin_mpc.set_initial_guess(
-        x0, 
-        # initial_state_trajectory=x_init, 
-        # initial_control_inputs=u_init,
-        # initial_phases_duration=phase_durations
-    )
-
-    swi_lin_mpc.create_solver('ipopt')
-    
-    setup_time = time.time() - start
-    print(f"Setup time: {setup_time}")
-    start = time.time()
-    
-    inputs_opt, deltas_opt, states_opt = swi_lin_mpc.solve()
-    solving_time = time.time() - start
-    print(f"Solving time: {solving_time}")
-    print("--------------------------------")
-    print(f"Total time: {precompute_time + setup_time + solving_time}")
-    
-    # if swi_lin_mpc.multiple_shooting:
-    #     swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt, states_opt)
-    # else:
-    #     swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
-    return swi_lin_mpc.opt_cost
-        
-def test_non_autonomous_linear_constrained(args):
-    
-    integrator = args.integrator
-    if args.shooting == 'ss':
-        multiple_shooting = False
-    elif args.shooting == 'ms':
-        multiple_shooting = True
-    else:
-        return ValueError("Invalid shooting method.")
-    hybrid = args.hybrid
-    n_steps = args.n_steps
-    plot = args.plot
-    
-    # ======================================================================= #
-    
-    start = time.time()
-    
-    model = {
-        'A': [np.array([[-0.5, -4.0], [4.0, -0.5]])],
-        'B': [np.array([[0.25], [2.0]])],
-    }
-    # print("--------------------------------")
-    # print(np.linalg.eigvals(model['A'][0]))
-
-    n_states = model['A'][0].shape[0]
-    n_inputs = model['B'][0].shape[1]
-
-    time_horizon = 3.0
-    
-    x0 = np.array([1.0, -1.0])
-
-    swi_lin_mpc = SwitchedLinearMPC(
-        model, 
-        n_steps, 
-        time_horizon, 
-        auto=False,
-        x0=x0,
-        multiple_shooting=multiple_shooting,
-        propagation=integrator,
-        inspect = True,
-        hybrid=hybrid,
-        plot=plot,
-    )
-
-    Q = 1. * np.eye(n_states)
-    R = 0.1 * np.eye(n_inputs)
-    # Solve the Algebraic Riccati Equation
-    P = np.array(solve_continuous_are(model['A'][0], model['B'][0], Q, R))
-
-    swi_lin_mpc.precompute_matrices(x0, Q, R, P)
-    
-    precompute_time = time.time() - start
-    print(f"Precomputation time: {precompute_time}")
-    start = time.time()
-    
-    # loaded_data = scipy.io.loadmat('optimal_results_hybrid.mat')
-    # fixed_states = loaded_data['trajectory'][0]
-    # fixed_inputs = loaded_data['controls'][0]
-    
-    states_lb = np.array([-100.0, -100.0])
-    states_ub = np.array([2.0, 2.0]) 
-    
-    swi_lin_mpc.set_bounds(
-        -5.0, 
-        5.0, 
-        states_lb, 
-        states_ub, 
-        # inspect_inputs=fixed_inputs,
-        # inspect_states=fixed_states,
-    )
-    
-    if swi_lin_mpc.multiple_shooting:
-        swi_lin_mpc.multiple_shooting_constraints(x0)
+        swi_lin_mpc.multiple_shooting_constraints()
 
     swi_lin_mpc.set_cost_function(Q, R, x0, P)
     
@@ -225,24 +108,296 @@ def test_non_autonomous_linear_constrained(args):
     
     swi_lin_mpc.set_initial_guess(
         x0, 
-        # initial_state_trajectory=x_init, 
-        # initial_control_inputs=u_init,
-        # initial_phases_duration=phase_durations
+        initial_state_trajectory=x_init, 
+        initial_control_inputs=u_init,
+        initial_phases_duration=phase_durations
     )
 
-    swi_lin_mpc.create_solver('ipopt', print_level=0)
+    swi_lin_mpc.create_solver('ipopt')
     
     setup_time = time.time() - start
     print(f"Setup time: {setup_time}")
     start = time.time()
     
-    inputs_opt, deltas_opt, states_opt = swi_lin_mpc.solve()
+    inputs_opt, deltas_opt, states_opt = swi_lin_mpc.solve(x0)
     solving_time = time.time() - start
     print(f"Solving time: {solving_time}")
     print("--------------------------------")
     print(f"Total time: {precompute_time + setup_time + solving_time}")
     
-    return swi_lin_mpc.opt_cost
+    # if swi_lin_mpc.multiple_shooting:
+    #     swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt, states_opt)
+    # else:
+    #     swi_lin_mpc.plot_optimal_solution(deltas_opt, inputs_opt)
+    return swi_lin_mpc.opt_cost, states_opt, inputs_opt, deltas_opt
+        
+def test_non_autonomous_linear_constrained(args):
+    
+    integrator = args.integrator
+    if args.shooting == 'ss':
+        multiple_shooting = False
+    elif args.shooting == 'ms':
+        multiple_shooting = True
+    else:
+        return ValueError("Invalid shooting method.")
+    hybrid = args.hybrid
+    n_steps = args.n_steps
+    plot = args.plot
+    
+    # ======================================================================= #
+    
+    start = time.time()
+    
+    model = {
+        'A': [np.array([[-0.5, -4.0], [4.0, -0.5]])],
+        'B': [np.array([[0.0], [2.0]])],
+    }
+    # print("--------------------------------")
+    # print(np.linalg.eigvals(model['A'][0]))
+
+    n_states = model['A'][0].shape[0]
+    n_inputs = model['B'][0].shape[1]
+
+    time_horizon = 5.0
+    
+    x0 = np.array([-1.0, -1.0])
+
+    swi_lin_mpc = SwitchedLinearMPC(
+        model, 
+        n_steps, 
+        time_horizon, 
+        auto=False,
+        x0=x0,
+        multiple_shooting=multiple_shooting,
+        propagation=integrator,
+        inspect = True,
+        hybrid=hybrid,
+        plot=plot,
+    )
+
+    Q = 10. * np.eye(n_states)
+    R = 5. * np.eye(n_inputs)
+    # Solve the Algebraic Riccati Equation
+    P = np.array(solve_continuous_are(model['A'][0], model['B'][0], Q, R))
+
+    swi_lin_mpc.precompute_matrices(x0, Q, R, P)
+    
+    precompute_time = time.time() - start
+    print(f"Precomputation time: {precompute_time}")
+    start = time.time()
+    
+    # loaded_data = scipy.io.loadmat('optimal_results_hybrid.mat')
+    # fixed_states = loaded_data['trajectory'][0]
+    # fixed_inputs = loaded_data['controls'][0]
+    
+    states_lb = np.array([-100.0, -100.0])
+    states_ub = np.array([0.2, 0.2])
+    control_lb = np.array([-2.0])
+    control_ub = np.array([2.0])
+    
+    swi_lin_mpc.set_bounds(
+        -2.0, 
+        2.0, 
+        states_lb, 
+        states_ub, 
+        # inspect_inputs=fixed_inputs,
+        # inspect_states=fixed_states,
+    )
+    
+    if swi_lin_mpc.multiple_shooting:
+        swi_lin_mpc.multiple_shooting_constraints()
+
+    swi_lin_mpc.set_cost_function(Q, R, x0, P)
+    
+    # Set the initial guess  
+    exp_dist = 1.0**np.arange(n_steps)
+    phase_durations = exp_dist * time_horizon / np.sum(exp_dist)
+    
+    # Starting from x0, compute the unconstrained LQR optimal inputs
+    # and states as initial guess
+    K_lqr = np.linalg.inv(R + model['B'][0].T @ P @ model['B'][0]) @ (model['B'][0].T @ P @ model['A'][0])
+    xk = x0.copy()
+    x_init = [xk.flatten()]
+    u_init = []
+    for i in range(n_steps):
+        uk = ca.DM(-K_lqr @ xk)
+        xk = swi_lin_mpc.autonomous_evol[i](phase_durations[i]) @ xk + swi_lin_mpc.forced_evol[i](uk, phase_durations[i])
+        x_init.append(xk.full().flatten())
+        u_init.append(uk)
+    x_init = np.array(x_init).reshape((n_steps+1, n_states))
+    u_init = np.array(u_init).reshape((n_steps, n_inputs))
+    
+    
+    swi_lin_mpc.set_initial_guess(
+        x0, 
+        initial_state_trajectory=x_init, 
+        initial_control_inputs=u_init,
+        initial_phases_duration=phase_durations
+    )
+
+    swi_lin_mpc.create_solver('ipopt')
+    
+    setup_time = time.time() - start
+    print(f"Setup time: {setup_time}")
+    start = time.time()
+    
+    inputs_opt, deltas_opt, states_opt = swi_lin_mpc.solve(x0)
+    solving_time = time.time() - start
+    print(f"Solving time: {solving_time}")
+    print("--------------------------------")
+    print(f"Total time: {precompute_time + setup_time + solving_time}")
+    
+    return swi_lin_mpc.opt_cost, states_opt, inputs_opt, deltas_opt
+
+
+def plot_comparison(non_uniform_solution, uniform_solutions, n_steps_list):
+    """
+    Plot comparison between non-uniform time sampling solution and uniform QP solutions.
+    
+    Args:
+        non_uniform_solution: Tuple (cost, states, inputs, deltas) for non-uniform solution
+        uniform_solutions: List of tuples [(cost, states, inputs, deltas), ...] for each uniform solution
+        n_steps_list: List of n_steps values corresponding to uniform_solutions
+    """
+    nu_cost, nu_states, nu_inputs, nu_deltas = non_uniform_solution
+    
+    # Create figure with subplots
+    fig = plt.figure(figsize=(16, 10))
+    
+    # Subplot 1: Cost comparison
+    ax1 = plt.subplot(2, 3, 1)
+    costs = [sol[0].item() for sol in uniform_solutions]
+    ax1.plot(n_steps_list, costs, 'o-', label='Uniform time sampling', linewidth=2, markersize=6)
+    ax1.axhline(y=nu_cost.item(), color='r', linestyle='--', linewidth=2, label='Non-uniform time sampling')
+    ax1.set_xlabel('Number of steps', fontsize=12)
+    ax1.set_ylabel('Optimal cost', fontsize=12)
+    ax1.set_title('Cost Comparison', fontsize=14, fontweight='bold')
+    ax1.legend(fontsize=10)
+    ax1.grid(True, alpha=0.3)
+    
+    # Subplot 2: State trajectory comparison x1
+    ax2 = plt.subplot(2, 3, 2)
+    # Non-uniform solution
+    nu_times = np.concatenate([[0], np.cumsum(nu_deltas)])
+    nu_states_array = np.array(nu_states).reshape(-1, 2)
+    ax2.plot(nu_times, nu_states_array[:, 0], 'r-', linewidth=2.5, label='Non-uniform', zorder=10)
+    
+    # Plot a few uniform solutions for comparison
+    selected_indices = [0, len(uniform_solutions)//3, 2*len(uniform_solutions)//3, -1]
+    colors = plt.cm.Blues(np.linspace(0.4, 0.9, len(selected_indices)))
+    for idx, color in zip(selected_indices, colors):
+        if idx < len(uniform_solutions):
+            _, states, _, deltas = uniform_solutions[idx]
+            times = np.concatenate([[0], np.cumsum(deltas)])
+            states_array = np.array(states).reshape(-1, 2)
+            ax2.plot(times, states_array[:, 0], '--', color=color, linewidth=1.5, 
+                    label=f'Uniform (N={n_steps_list[idx]})', alpha=0.8)
+    
+    ax2.set_xlabel('Time [s]', fontsize=12)
+    ax2.set_ylabel('State x₁', fontsize=12)
+    ax2.set_title('State Trajectory x₁', fontsize=14, fontweight='bold')
+    ax2.legend(fontsize=9)
+    ax2.grid(True, alpha=0.3)
+    
+    # Subplot 3: State trajectory comparison x2
+    ax3 = plt.subplot(2, 3, 3)
+    ax3.plot(nu_times, nu_states_array[:, 1], 'r-', linewidth=2.5, label='Non-uniform', zorder=10)
+    
+    for idx, color in zip(selected_indices, colors):
+        if idx < len(uniform_solutions):
+            _, states, _, deltas = uniform_solutions[idx]
+            times = np.concatenate([[0], np.cumsum(deltas)])
+            states_array = np.array(states).reshape(-1, 2)
+            ax3.plot(times, states_array[:, 1], '--', color=color, linewidth=1.5,
+                    label=f'Uniform (N={n_steps_list[idx]})', alpha=0.8)
+    
+    ax3.set_xlabel('Time [s]', fontsize=12)
+    ax3.set_ylabel('State x₂', fontsize=12)
+    ax3.set_title('State Trajectory x₂', fontsize=14, fontweight='bold')
+    ax3.legend(fontsize=9)
+    ax3.grid(True, alpha=0.3)
+    
+    # Subplot 4: Control input comparison
+    ax4 = plt.subplot(2, 3, 4)
+    # Non-uniform solution (piecewise constant)
+    nu_inputs_array = np.array(nu_inputs).flatten()
+    for i in range(len(nu_inputs_array)):
+        ax4.plot([nu_times[i], nu_times[i+1]], [nu_inputs_array[i], nu_inputs_array[i]], 
+                'r-', linewidth=2.5, label='Non-uniform' if i == 0 else '')
+        if i < len(nu_inputs_array) - 1:
+            ax4.plot([nu_times[i+1], nu_times[i+1]], [nu_inputs_array[i], nu_inputs_array[i+1]], 
+                    'r:', linewidth=1.5, alpha=0.5)
+    
+    for idx, color in zip(selected_indices, colors):
+        if idx < len(uniform_solutions):
+            _, _, inputs, deltas = uniform_solutions[idx]
+            times = np.concatenate([[0], np.cumsum(deltas)])
+            inputs_array = np.array(inputs).flatten()
+            for i in range(len(inputs_array)):
+                ax4.plot([times[i], times[i+1]], [inputs_array[i], inputs_array[i]], 
+                        '--', color=color, linewidth=1.5, alpha=0.8,
+                        label=f'Uniform (N={n_steps_list[idx]})' if i == 0 else '')
+                if i < len(inputs_array) - 1:
+                    ax4.plot([times[i+1], times[i+1]], [inputs_array[i], inputs_array[i+1]], 
+                            ':', color=color, linewidth=1, alpha=0.5)
+    
+    ax4.set_xlabel('Time [s]', fontsize=12)
+    ax4.set_ylabel('Control input u', fontsize=12)
+    ax4.set_title('Control Input', fontsize=14, fontweight='bold')
+    ax4.legend(fontsize=9)
+    ax4.grid(True, alpha=0.3)
+    
+    # Subplot 5: Phase space plot
+    ax5 = plt.subplot(2, 3, 5)
+    ax5.plot(nu_states_array[:, 0], nu_states_array[:, 1], 'r-', linewidth=2.5, 
+            marker='o', markersize=4, label='Non-uniform', zorder=10)
+    ax5.plot(nu_states_array[0, 0], nu_states_array[0, 1], 'go', markersize=10, 
+            label='Initial state', zorder=11)
+    ax5.plot(nu_states_array[-1, 0], nu_states_array[-1, 1], 'r*', markersize=15, 
+            label='Final state', zorder=11)
+    
+    for idx, color in zip(selected_indices, colors):
+        if idx < len(uniform_solutions):
+            _, states, _, _ = uniform_solutions[idx]
+            states_array = np.array(states).reshape(-1, 2)
+            ax5.plot(states_array[:, 0], states_array[:, 1], '--', color=color, linewidth=1.5,
+                    alpha=0.8, label=f'Uniform (N={n_steps_list[idx]})')
+    
+    ax5.set_xlabel('State x₁', fontsize=12)
+    ax5.set_ylabel('State x₂', fontsize=12)
+    ax5.set_title('Phase Portrait', fontsize=14, fontweight='bold')
+    ax5.legend(fontsize=9)
+    ax5.grid(True, alpha=0.3)
+    
+    # Subplot 6: Time distribution
+    ax6 = plt.subplot(2, 3, 6)
+    ax6.bar(range(len(nu_deltas)), nu_deltas, color='red', alpha=0.7, label='Non-uniform')
+    
+    # Show uniform time distribution for last solution
+    if len(uniform_solutions) > 0:
+        _, _, _, last_deltas = uniform_solutions[-1]
+        # Downsample for visualization if too many
+        if len(last_deltas) > 50:
+            step = len(last_deltas) // 50
+            plot_deltas = last_deltas[::step]
+            plot_indices = range(0, len(last_deltas), step)
+        else:
+            plot_deltas = last_deltas
+            plot_indices = range(len(last_deltas))
+        ax6.bar(plot_indices, plot_deltas, color='blue', alpha=0.5, 
+               label=f'Uniform (N={n_steps_list[-1]})', width=max(1, len(nu_deltas)//len(plot_deltas)))
+    
+    ax6.set_xlabel('Phase index', fontsize=12)
+    ax6.set_ylabel('Phase duration [s]', fontsize=12)
+    ax6.set_title('Time Distribution', fontsize=14, fontweight='bold')
+    ax6.legend(fontsize=10)
+    ax6.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    plt.savefig('comparison_uniform_vs_nonuniform.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    
+    return fig
     
     
 if __name__ == '__main__':
@@ -261,7 +416,7 @@ if __name__ == '__main__':
         help='Hybrid method.'
     )
     parser.add_argument('--n_steps',
-        type=int, metavar="int", default=80, required=False,
+        type=int, metavar="int", default=100, required=False,
         help='Number of steps.'
     )
     parser.add_argument('--plot',
@@ -272,23 +427,37 @@ if __name__ == '__main__':
     if args.hybrid in ('False', 'false', '0'):
         args.hybrid = False
     
-    non_uniform_opt_cost = test_non_autonomous_switched_linear_constrained(args)
+    non_uniform_solution = test_non_autonomous_switched_linear_constrained(args)
+    non_uniform_N = args.n_steps
     
-    opt_cost = []
+    uniform_solutions = []
+    n_steps_list = []
     for n_steps in range(20, 200, 10):
         args.n_steps = n_steps
-        cost = test_non_autonomous_linear_constrained(args)
-        opt_cost.append(cost)
+        solution = test_non_autonomous_linear_constrained(args)
+        uniform_solutions.append(solution)
+        n_steps_list.append(n_steps)
+    
+    # Extract costs for summary
+    non_uniform_opt_cost = non_uniform_solution[0]
+    uniform_opt_costs = [sol[0] for sol in uniform_solutions]
     
     print("\n" + "="*40)
     print("Results Summary")
     print("="*40)
-    print(f"Non-uniform optimal cost: {non_uniform_opt_cost.item()}")
+    print(f"Non-uniform optimal cost (N={non_uniform_N}): {non_uniform_opt_cost.item()}")
+    print("="*40)
+    print("Uniform time sampling results:")
     print("-"*40)
-    print(f"{'N Steps':<15} {'Optimal Cost':<15}")
+    print(f"{'N Steps':<15} {'Optimal Cost':<15} {'Difference %':<15}")
     print("-"*40)
-    for n_steps, cost in zip(range(20, 200, 10), opt_cost):
-        print(f"{n_steps:<15} {cost.item()}")
+    for n_steps, cost in zip(n_steps_list, uniform_opt_costs):
+        diff_percent = 100 * (cost.item() - non_uniform_opt_cost.item()) / non_uniform_opt_cost.item()
+        print(f"{n_steps:<15} {cost.item():<15.6f} {diff_percent:+.3f}%")
     print("="*40 + "\n")
+    
+    # Plot comparison
+    print("Generating comparison plots...")
+    plot_comparison(non_uniform_solution, uniform_solutions, n_steps_list)
     
     print("All tests passed!")

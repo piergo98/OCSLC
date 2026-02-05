@@ -60,6 +60,8 @@ class SwitchedLinearMPC(SwiLin):
             self.states = [ca.SX.sym(f"X_{i}", self.n_states) for i in range(self.n_phases+1)]
             self.n_opti += (self.n_phases + 1) * self.n_states
             self.shift += self.n_states
+            # Create parameter for initial state
+            self.x0_param = ca.SX.sym("x0_param", self.n_states)
         
         # Build the optimization vector
         if self.n_inputs == 0:
@@ -96,7 +98,7 @@ class SwitchedLinearMPC(SwiLin):
                 self.ub_opt_var[i] = durations[i//self.shift]
         else:
             self.lb_opt_var[self.shift-1::self.shift] = 0 #1e-3
-            self.ub_opt_var[self.shift-1::self.shift] = time_horizon
+            self.ub_opt_var[self.shift-1::self.shift] = time_horizon/10
         
         # Initialize cost and constraints
         self.cost = 0
@@ -283,17 +285,22 @@ class SwitchedLinearMPC(SwiLin):
             name=name,
         )]
         
-    def multiple_shooting_constraints(self, x0, displacement=0, update=False):
+    def multiple_shooting_constraints(self, displacement=0, update=False):
         '''
         This method creates the constraints for the multiple shooting approach.
-        '''
-        # Check if x0 is provided when multiple shooting is enabled
-        if x0 is None:
-            raise ValueError("x0 must be provided when multiple shooting is enabled.")
+        Uses x0_param as the parameter for the initial state.
         
-        # Set bounds for the first state
-        self.lb_opt_var[:self.n_states] = x0
-        self.ub_opt_var[:self.n_states] = x0
+        Args:
+            x0: Deprecated - kept for backward compatibility but not used. 
+                The initial state is now handled via the x0_param parameter in the NLP.
+            displacement: Phase displacement for constraint ordering
+            update: Whether to update existing constraints or create new ones
+        '''
+        # Add constraint for the first state to match x0_param
+        if update:
+            self.update_constraint("State_0", g=[self.states[0] - self.x0_param])
+        else:
+            self.add_constraint([self.states[0] - self.x0_param], np.zeros(self.n_states), np.zeros(self.n_states), "State_0")
         
         for i in range(self.n_phases):
             x = self.states[i]
@@ -392,8 +399,11 @@ class SwitchedLinearMPC(SwiLin):
                 L += 0.5 * ca.transpose(self.states[-1] - reference) @ E @ (self.states[-1] - reference)
             else:
                 L += 0.5 * ca.transpose(self.states[-1]) @ E @ (self.states[-1])
-        # elif self.propagation == 'int':
-        #     L += 0.5 * ca.transpose(self.states[-1]) @ E @ (self.states[-1])
+        
+        
+        # Add a log barrier to avoid too small phase durations
+        for delta in self.deltas:
+            L -= 1e-7 * ca.log(delta)
         
         self.cost = L
 
@@ -516,8 +526,12 @@ class SwitchedLinearMPC(SwiLin):
         problem = {
             'f': self.cost,
             'x': ca.vertcat(*self.opt_var),
-            'g': ca.vertcat(*g)
+            'g': ca.vertcat(*g),
         }
+        
+        # Add parameter for initial state if multiple shooting is enabled
+        if self.multiple_shooting:
+            problem['p'] = self.x0_param
         
         if solver == 'ipopt':        
             opts = {
@@ -561,18 +575,28 @@ class SwitchedLinearMPC(SwiLin):
             
         self.solver = ca.nlpsol('solver', solver, problem, opts)
                          
-    def solve(self, save=False):
+    def solve(self, x0=None, save=False):
         lbg = np.empty(0)
         ubg = np.empty(0)
         for constraint in self.constraints:
             lbg = np.concatenate((lbg, constraint.lbg))
             ubg = np.concatenate((ubg, constraint.ubg))
         
-        r = self.solver(
-            x0=self.opt_var_0,
-            lbx=self.lb_opt_var.tolist(), ubx=self.ub_opt_var.tolist(),
-            lbg=lbg, ubg=ubg,
-        )
+        solver_args = {
+            'x0': self.opt_var_0,
+            'lbx': self.lb_opt_var.tolist(),
+            'ubx': self.ub_opt_var.tolist(),
+            'lbg': lbg,
+            'ubg': ubg,
+        }
+        
+        # Add parameter value for initial state if multiple shooting is enabled
+        if self.multiple_shooting:
+            if x0 is None:
+                raise ValueError("x0 must be provided when multiple shooting is enabled.")
+            solver_args['p'] = x0
+        
+        r = self.solver(**solver_args)
         
         sol = r['x'].full().flatten()
         self.opt_cost = r['f'].full().flatten()
@@ -620,9 +644,9 @@ class SwitchedLinearMPC(SwiLin):
         # Update the initial guess with the new measured state
         self._propagate_state(x0)
         
-        # Update the multiple shooting constraints
+        # Update the multiple shooting constraints (no x0 argument needed anymore)
         if self.multiple_shooting:
-            self.multiple_shooting_constraints(x0, update=True)
+            self.multiple_shooting_constraints(update=True)
             
         # Set the cost function
         self.set_cost_function(Q, R, x0, E)
@@ -645,10 +669,6 @@ class SwitchedLinearMPC(SwiLin):
                 self.set_initial_guess(x0)
         else:
             self.set_initial_guess(x0)
-
-        # Set bounds for the first state
-        self.lb_opt_var[:self.n_states] = x0
-        self.ub_opt_var[:self.n_states] = x0
         
         self.create_solver(
             solver='ipopt', 
@@ -658,4 +678,4 @@ class SwitchedLinearMPC(SwiLin):
             max_iter=100
         )
         
-        return self.solve()
+        return self.solve(x0=x0)
