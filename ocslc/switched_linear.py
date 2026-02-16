@@ -12,6 +12,7 @@ import numpy as np
 import scipy.io
 from scipy.interpolate import Akima1DInterpolator
 from scipy.linalg import block_diag
+import copy
 
 
 class SwiLin:
@@ -686,15 +687,16 @@ class SwiLin:
         A = self.A[index]
         B = self.B[index]
         
-        # Extract the control input
-        ui = self.u[index]
-        
         # Define the M matrix
         M = ca.SX.sym('M', self.n_states + 1, self.n_states + 1)
         M = 0*M
         
         M[:self.n_states, :self.n_states] = A
-        M[:self.n_states, self.n_states] = B @ ui
+        
+        if not self.auto:
+            # Extract the control input
+            ui = self.u[index]
+            M[:self.n_states, self.n_states] = B @ ui
         
         # Extract the S matrix of the previous iteration
         S_prev = self.S[index+1]
@@ -798,7 +800,7 @@ class SwiLin:
         
         return cost
         
-    def grad_cost_function(self, index, R):
+    def grad_cost_function(self):
         """
         Computes the gradient of the cost function.
         
@@ -813,48 +815,109 @@ class SwiLin:
         """
         
         # Create the augmented state vectors
-        x_aug = ca.SX.sym('x_aug', self.n_states + 1)
-        x_next_aug = ca.SX.sym('x_next_aug', self.n_states + 1)
-        x_aug[:self.n_states] = self.x[index]
-        x_aug[self.n_states] = 1
-        x_next_aug[:self.n_states] = self.x[index+1]
-        x_next_aug[self.n_states] = 1
+        # x_aug = ca.SX.sym('x_aug', self.n_states + 1)
+        # x_next_aug = ca.SX.sym('x_next_aug', self.n_states + 1)
+        # x_aug[:self.n_states] = self.x[index]
+        # x_aug[self.n_states] = 1
+        # x_next_aug[:self.n_states] = self.x[index+1]
+        # x_next_aug[self.n_states] = 1
         
-        R_ = ca.SX(R)
+        # R_ = ca.SX(R)
 
-        # Extract the control input
-        ui = self.u[index]
+        # # Extract the control input
+        # ui = self.u[index]
 
-        # Extract the phase duration
-        delta_i = self.delta[index]
+        # # Extract the phase duration
+        # delta_i = self.delta[index]
         
-        # Extract the C matrix of the current iteration
-        C = self.C[index]
+        # # Extract the C matrix of the current iteration
+        # C = self.C[index]
         
-        # Extract the N matrix of the current iteration
-        N = self.N[index]
+        # # Extract the N matrix of the current iteration
+        # N = self.N[index]
         
-        # Extract the D matrix of the current iteration
-        D = self.D[index]
-        # print(f"D: {type(D)}, N: {type(N)}, C: {type(C)}")
-        # Compute the gradient of the cost function with respect to the control input
-        du = []
-        for j in range(self.n_inputs):
-            # D and N are lists (one matrix per input). Index the j-th element.
-            Dij = D[j] if isinstance(D, (list, tuple)) else D
-            Nij = N[j] if isinstance(N, (list, tuple)) else N
+        # # Extract the D matrix of the current iteration
+        # D = self.D[index]
+        # # print(f"D: {type(D)}, N: {type(N)}, C: {type(C)}")
+        # # Compute the gradient of the cost function with respect to the control input
+        # du = []
+        # for j in range(self.n_inputs):
+        #     # D and N are lists (one matrix per input). Index the j-th element.
+        #     Dij = D[j] if isinstance(D, (list, tuple)) else D
+        #     Nij = N[j] if isinstance(N, (list, tuple)) else N
 
-            term_r = ui[j] * R_[j, j] * delta_i
-            term_d = ca.mtimes([ca.transpose(x_aug), Dij, x_aug]) if Dij is not None else 0
-            term_n = ca.mtimes([ca.transpose(x_next_aug), Nij, x_next_aug]) if Nij is not None else 0
+        #     term_r = ui[j] * R_[j, j] * delta_i
+        #     term_d = ca.mtimes([ca.transpose(x_aug), Dij, x_aug]) if Dij is not None else 0
+        #     term_n = ca.mtimes([ca.transpose(x_next_aug), Nij, x_next_aug]) if Nij is not None else 0
 
-            du_j = term_r + term_d + term_n
-            du.append(du_j)
+        #     du_j = term_r + term_d + term_n
+        #     du.append(du_j)
 
-        # Compute the gradient of the cost function with respect to the phase duration
-        d_delta = 0.5 * ca.mtimes([ca.transpose(ui), R_, ui]) + ca.mtimes([ca.transpose(x_next_aug), C, x_next_aug])
+        # # Compute the gradient of the cost function with respect to the phase duration
+        # d_delta = 0.5 * ca.mtimes([ca.transpose(ui), R_, ui]) + ca.mtimes([ca.transpose(x_next_aug), C, x_next_aug])
         
-        return du, d_delta
+        if self.auto:
+            d_delta = ca.SX.zeros(self.n_phases)
+            for i in range(self.n_phases):
+                # Extract and augment the state vector
+                x_i_plus_1 = copy.deepcopy(self.x[i+1])
+                x_i_plus_1 = ca.vertcat(x_i_plus_1, 1)
+                C_i = self.C[i]
+                d_delta[i] = x_i_plus_1.T @ C_i @ x_i_plus_1
+            
+        return ca.Function('grad', [*self.delta], [d_delta])
+    
+    def hessian_cost_function(self):
+        """
+        Computes the Hessian of the cost function, only for the autonomous case.
+        Args:
+        Q (np.array): The weight matrix.
+        """
+        # I need to compute the upper triangular part of the Hessian matrix
+        # since it holds that d^2J/d_delta_i d_delta_l = 2 * x_aug_{l+1}^T * C_l * Phi(tau_{l+1}, tau_{i+1}) * A_i * x_aug_{i+1}
+        H = ca.SX.zeros(self.n_phases, self.n_phases)
+        for i in range(self.n_phases):
+            for l in range(i, self.n_phases):
+                if l >= i:
+                    C_l = copy.deepcopy(self.C[l])
+                    # Leveraging the transition matrix property, we can compute the transition matrix from tau_{i+1} to tau_{l+1} 
+                    # as the product of the transition matrix from tau_{i+1} to tau_{i+2}, from tau_{i+2} to tau_{i+3}, ..., from tau_{l} 
+                    # to tau_{l+1}
+                    Phi = ca.SX.eye(self.n_states + 1)
+                    for k in range(i+1, l+1):
+                        # First, build the transition matrix from tau_{k} to tau_{k+1}
+                        phi_k_k_plus_1 = self.transition_matrix(self.E[k], ca.SX.zeros(self.n_states + 1))
+                        Phi = ca.mtimes([phi_k_k_plus_1, Phi])
+                    # Extract the A matrix of the i-th mode and augment it to be compatible with the augmented state vector
+                    A_i = copy.deepcopy(self.A[i])
+                    A_i_aug = ca.SX.zeros(self.n_states + 1, self.n_states + 1)
+                    A_i_aug[:self.n_states, :self.n_states] = A_i
+                    
+                    # Extract the states at the time steps tau_{i+1} and tau_{l+1}
+                    x_l_plus_1 = copy.deepcopy(self.x[l+1])
+                    x_l_plus_1 = ca.vertcat(x_l_plus_1, 1)
+                    x_i_plus_1 = copy.deepcopy(self.x[i+1])
+                    x_i_plus_1 = ca.vertcat(x_i_plus_1, 1)
+                    H[i, l] = 2 * ca.transpose(x_l_plus_1) @ C_l @ Phi @ A_i_aug @ x_i_plus_1
+                else:
+                    C_i = copy.deepcopy(self.C[i])
+                    Phi = ca.SX.eye(self.n_states + 1)
+                    for k in range(l+1, i+1):
+                        phi_k_k_plus_1 = self.transition_matrix(self.E[k], ca.SX.zeros(self.n_states + 1))
+                        Phi = ca.mtimes([phi_k_k_plus_1, Phi])
+                    # Extract the A matrix of the l-th mode and augment it to be compatible with the augmented state vector
+                    A_l = copy.deepcopy(self.A[l])
+                    A_l_aug = ca.SX.zeros(self.n_states + 1, self.n_states + 1)
+                    A_l_aug[:self.n_states, :self.n_states] = A_l
+                    # Extract the state at the time step tau_{i+1}
+                    x_l_plus_1 = copy.deepcopy(self.x[l+1])
+                    x_l_plus_1 = ca.vertcat(x_l_plus_1, 1)
+                    x_i_plus_1 = copy.deepcopy(self.x[i+1])
+                    x_i_plus_1 = ca.vertcat(x_i_plus_1, 1)
+                    
+                    H[i, l] = 2 * ca.transpose(x_i_plus_1) @ C_i @ Phi @ A_l_aug @ x_l_plus_1
+                    
+        return ca.Function('hessian', [*self.delta], [H])
     
     def precompute_matrices(self, x0, Q, R, E, xr=None) -> None:
         """
@@ -924,15 +987,20 @@ class SwiLin:
         #     self.S_num.insert(0, S_num)
         
         # Compute the C and N matrices
-        # for i in range(self.n_phases):
-        #     C = self.C_matrix(i, Q_)
-        #     self.C.append(C)
-        #     if self.n_inputs > 0:
-        #         N = self.N_matrix(i)
-        #         self.N.append(N)
+        for i in range(self.n_phases):
+            C = self.C_matrix(i, Q_)
+            self.C.append(C)
+            if self.n_inputs > 0:
+                N = self.N_matrix(i)
+                self.N.append(N)
                 
         # Propagate the state using the computed matrices.
         self._propagate_state(x0)
+        
+        # Compute Hessian of the cost function (only for the autonomous case)
+        if self.auto:
+            self.grad = self.grad_cost_function()
+            self.hessian = self.hessian_cost_function()
        
     def state_extraction(self, delta_opt, *args):
         """
