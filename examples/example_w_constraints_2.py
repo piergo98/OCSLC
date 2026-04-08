@@ -25,12 +25,12 @@ def test_non_uniform_non_autonomous_linear_constrained(args):
     # ======================================================================= #
     
     start = time.time()
-    epsilon = 1e-2
+    epsilon = 1e-1
     model = {
-        # 'A': [np.array([[-10, 0.0, 0.0], [0.0, -0.1, 0.0], [0.0, 0.0, -0.01]])],
-        # 'B': [np.array([[1.0], [1.0], [1.0]])],
-        'A': [np.array([[-1/epsilon, 1/epsilon], [0.0, -1.0]])],
-        'B': [np.array([[1/epsilon], [0.0]])],
+        'A': [np.array([[-40.0, 10.0, 0.0], [0.0, -2.0, 1.0], [0.0, 0.0, -0.05]])],
+        'B': [np.array([[1.0], [0.5], [1.0]])],
+        # 'A': [np.array([[-1/epsilon, 1/epsilon], [0.0, -1.0]])],
+        # 'B': [np.array([[1/epsilon], [0.0]])],
     }
     # print("--------------------------------")
     # print(np.linalg.eigvals(model['A'][0]))
@@ -38,9 +38,9 @@ def test_non_uniform_non_autonomous_linear_constrained(args):
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
 
-    time_horizon = 10.0
+    time_horizon = 20.0
     
-    x0 = np.array([-1.0, -1.0])
+    x0 = np.array([2.0, 1.0, 1.0])
 
     swi_lin_mpc = SwitchedLinearMPC(
         model, 
@@ -55,8 +55,8 @@ def test_non_uniform_non_autonomous_linear_constrained(args):
         plot=plot,
     )
 
-    Q = 1. * np.eye(n_states)
-    R = 0.01 * np.eye(n_inputs)
+    Q = np.diag([10.0, 1.0, 1.0])
+    R = 0.05 * np.eye(n_inputs)
     # Solve the Algebraic Riccati Equation
     P = np.array(solve_continuous_are(model['A'][0], model['B'][0], Q, R))
     print(np.linalg.eigvals(P))
@@ -71,11 +71,11 @@ def test_non_uniform_non_autonomous_linear_constrained(args):
     # fixed_states = loaded_data['trajectory'][0]
     # fixed_inputs = loaded_data['controls'][0]
     
-    states_lb = np.array([-100.0, -100.0])
-    states_ub = np.array([100.0, 100.0]) 
+    states_lb = np.array([-2.5, -1.5, -100.0])
+    states_ub = np.array([2.5, 1.5, 100.0]) 
     # states_ub = np.array([0.2, 0.2, 0.2]) 
-    control_lb = np.array([-10.0])
-    control_ub = np.array([10.0])
+    control_lb = np.array([-0.4])
+    control_ub = np.array([0.4])
     
     swi_lin_mpc.set_bounds(
         control_lb, 
@@ -117,7 +117,7 @@ def test_non_uniform_non_autonomous_linear_constrained(args):
         # initial_phases_duration=phase_durations
     )
 
-    swi_lin_mpc.create_solver('ipopt')
+    swi_lin_mpc.create_solver('ipopt', print_level=5)
     
     setup_time = time.time() - start
     print(f"Setup time: {setup_time}")
@@ -153,12 +153,12 @@ def test_uniform_non_autonomous_linear_constrained(args):
     # ======================================================================= #
     
     start = time.time()
-    epsilon = 1e-2
+    epsilon = 1e-1
     model = {
-        # 'A': [np.array([[-10, 0.0, 0.0], [0.0, -0.1, 0.0], [0.0, 0.0, -0.01]])],
-        # 'B': [np.array([[1.0], [1.0], [1.0]])],
-        'A': [np.array([[-1/epsilon, 1/epsilon], [0.0, -1.0]])],
-        'B': [np.array([[1/epsilon], [0.0]])],
+        'A': [np.array([[-40.0, 10.0, 0.0], [0.0, -2.0, 1.0], [0.0, 0.0, -0.05]])],
+        'B': [np.array([[1.0], [0.5], [1.0]])],
+        # 'A': [np.array([[-1/epsilon, 1/epsilon], [0.0, -1.0]])],
+        # 'B': [np.array([[1/epsilon], [0.0]])],
     }
     # print("--------------------------------")
     # print(np.linalg.eigvals(model['A'][0]))
@@ -166,9 +166,9 @@ def test_uniform_non_autonomous_linear_constrained(args):
     n_states = model['A'][0].shape[0]
     n_inputs = model['B'][0].shape[1]
 
-    time_horizon = 10.0
+    time_horizon = 20.0
     
-    x0 = np.array([-1.0, -1.0])
+    x0 = np.array([2.0, 1.0, 1.0])
 
     swi_lin_mpc = SwitchedLinearMPC(
         model, 
@@ -183,8 +183,8 @@ def test_uniform_non_autonomous_linear_constrained(args):
         plot=plot,
     )
 
-    Q = 1. * np.eye(n_states)
-    R = 0.01 * np.eye(n_inputs)
+    Q = np.diag([10.0, 1.0, 1.0])
+    R = 0.05 * np.eye(n_inputs)
     # Solve the Algebraic Riccati Equation
     P = np.array(solve_continuous_are(model['A'][0], model['B'][0], Q, R))
 
@@ -198,11 +198,11 @@ def test_uniform_non_autonomous_linear_constrained(args):
     # fixed_states = loaded_data['trajectory'][0]
     # fixed_inputs = loaded_data['controls'][0]
     
-    states_lb = np.array([-100.0, -100.0])
-    states_ub = np.array([100.0, 100.0]) 
+    states_lb = np.array([-2.5, -1.5, -100.0])
+    states_ub = np.array([2.5, 1.5, 100.0])
     # states_ub = np.array([0.2, 0.2, 0.2])
-    control_lb = np.array([-10.0])
-    control_ub = np.array([10.0])
+    control_lb = np.array([-0.4])
+    control_ub = np.array([0.4])
     
     swi_lin_mpc.set_bounds(
         control_lb, 
@@ -477,7 +477,7 @@ if __name__ == '__main__':
     print(f"{'N Steps':<15} {'Optimal Cost':<15} {'Difference %':<15}")
     print("-"*40)
     for n_steps, cost in zip(n_steps_list, uniform_opt_costs):
-        diff_percent = 100 * (cost.item() - non_uniform_opt_cost.item()) / (non_uniform_opt_cost.item() + 1e-8)
+        diff_percent = 100 * (cost.item() - non_uniform_opt_cost.item()) / non_uniform_opt_cost.item()
         print(f"{n_steps:<15} {cost.item():<15.6f} {diff_percent:+.3f}%")
     print("="*40 + "\n")
     
