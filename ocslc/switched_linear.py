@@ -89,6 +89,22 @@ class SwiLin:
         self.S_num = []
         self.S_int = []
         self.Sr_int = []
+        self._A_powers = {}
+        self._expm_num_terms = None
+        
+        # Symbolic initial state for gradient and Hessian computation
+        self.x0_sym = None
+        
+        # Define matrix exponential functions
+        # A_sym = ca.SX.sym('A', self.n_states, self.n_states)
+        # delta_sym = ca.SX.sym('delta')
+        # exp_A_delta = ca.expm(A_sym * delta_sym)
+        # self.expm = ca.Function('expm', [A_sym, delta_sym], [exp_A_delta])
+        
+        # C_sym = ca.SX.sym('C', 3*self.n_states + self.n_inputs, 3*self.n_states + self.n_inputs)
+        # delta_sym = ca.SX.sym('delta')
+        # expm_c = ca.expm(C_sym * delta_sym)
+        # self.expm_c = ca.Function('expm_func', [C_sym, delta_sym], [expm_c])
     
     def load_model(self, model) -> None:
         """
@@ -100,19 +116,30 @@ class SwiLin:
         A = []
         B = []
         for i in range(self.n_phases):
-            id = i % len(model['A'])
-            A.append(model['A'][id])
+            mode_index = i % len(model['A'])
+            A.append(model['A'][mode_index])
             # Check if the input matrix is empty
             if model['B']:
-                B.append(model['B'][id])
+                B.append(model['B'][mode_index])
             else:
-                B.append(np.zeros((model['A'][id].shape[0], 1)))
+                B.append(np.zeros((model['A'][mode_index].shape[0], 1)))
               
         self.A = A
         self.B = B
         
         # Define the number of modes of the system
         self.n_modes = len(A)
+
+        # Precompute powers of A for expm Taylor series reuse
+        if self._expm_num_terms is None:
+            self._expm_num_terms = self._get_n_terms_expm_approximation()
+        for Ai in self.A:
+            powers = []
+            A_power = np.eye(Ai.shape[0])
+            for _ in range(1, self._expm_num_terms + 1):
+                A_power = A_power @ Ai
+                powers.append(A_power.copy())
+            self._A_powers[id(Ai)] = powers
         
     def integrator(self, func: ca.Function, t0, tf: ca.SX, *args):
         """
@@ -223,32 +250,49 @@ class SwiLin:
         result = ca.SX.eye(n)   # Initialize result to identity matrix
         
         # Number of terms for the Taylor series expansion
-        num_terms = self._get_n_terms_expm_approximation()
-        # num_terms = 6
-        
-        for k in range(1, num_terms+1):
-            term = np.linalg.matrix_power(A, k) * ca.power(delta, k) / factorial(k)
+        num_terms = self._expm_num_terms or self._get_n_terms_expm_approximation()
+
+        cached_powers = self._A_powers.get(id(A))
+        if cached_powers is None or len(cached_powers) < num_terms:
+            cached_powers = None
+
+        for k in range(1, num_terms + 1):
+            if cached_powers is not None:
+                A_power = cached_powers[k - 1]
+            else:
+                A_power = np.linalg.matrix_power(A, k)
+            term = A_power * ca.power(delta, k) / factorial(k)
             result = result + term
-    
+            
+        # result = ca.expm(A * delta)
         return result
     
     def _get_n_terms_expm_approximation(self):
-        threshold = 1e-3
+        """
+        Compute the number of terms needed for Taylor series approximation of matrix exponential.
+        Uses the error bound: ||e^A - p_n(A)|| <= ||A||^(n+1) / (n+1)!
         
+        Returns:
+            int: Number of terms required for the approximation.
+        """
+        threshold = 1e-6
         n_terms_min = 6
         n_terms_max = 100
         
-        err = self.time_horizon**n_terms_min / factorial(n_terms_min)
+        # Use a more conservative bound based on time_horizon
+        # Error estimate for Taylor series: t^n / n!
+        err = self.time_horizon ** n_terms_min / factorial(n_terms_min)
         
-        for n_terms in range(n_terms_min+1, n_terms_max):
+        for n_terms in range(n_terms_min + 1, n_terms_max):
             if err < threshold:
-                return n_terms_min
-            
+                return n_terms
             err *= self.time_horizon / n_terms
-            
+        
+        # Log warning if max terms reached
+        print(f"Warning: Matrix exponential approximation reached max terms ({n_terms_max}) with error {err:.2e}")
         return n_terms_max
     
-    def _mat_exp_prop_exp(self, index, Q, R):
+    def _mat_exp_prop_exp(self, index, Q):
         """
         Compute matrix exponential properties.
 
@@ -369,7 +413,7 @@ class SwiLin:
         else:
             return Ei, ca.SX.zeros(0), 0, ca.SX.zeros(0), ca.SX.zeros(0), ca.SX.zeros(0)
         
-    def mat_exp_prop(self, index, Q, R):
+    def mat_exp_prop(self, index, Q):
         """
         Compute matrix exponential properties.
 
@@ -386,11 +430,24 @@ class SwiLin:
         
         """        
         if self.propagation == 'exp':
-            return self._mat_exp_prop_exp(index, Q, R)
+            return self._mat_exp_prop_exp(index, Q)
         else:
             return self._mat_exp_prop_int(index)
         
-    def _propagate_state(self, x0):
+    def propagate_state(self, x0, symbolic=False):
+        """Propagate state trajectory from initial state x0.
+        
+        Args:
+            x0: Initial state (numeric array or symbolic variable)
+            symbolic: If True, x0 is treated as symbolic for gradient/Hessian computation
+        """
+        if symbolic and self.x0_sym is None:
+            # Create symbolic x0 if not already created
+            self.x0_sym = ca.SX.sym('x0', self.n_states)
+            x0 = self.x0_sym
+        elif symbolic:
+            x0 = self.x0_sym
+            
         self.x = [x0]
         for i in range(self.n_phases):
             if self.n_inputs > 0:
@@ -612,7 +669,7 @@ class SwiLin:
         # Compute the integral of the S matrix
         if self.n_inputs == 0:
             S_int = self.integrator(f_int, 0, delta_i, 'auto')
-            S_int_num = ca.Function('S_int_num', [*self.delta], [0.5*S_int])
+            S_int_num = ca.Function('S_int_num', [*self.delta], [S_int])
             self.S_int.append(S_int_num)
             # if a reference state is given, compute the Sr matrix
             if xr is not None:
@@ -622,12 +679,12 @@ class SwiLin:
             
         else:
             S_int = self.integrator(f_int, 0, delta_i, ui)
-            S_int_num = ca.Function('S_int_num', [delta_i, ui], [0.5*S_int])
+            S_int_num = ca.Function('S_int_num', [delta_i, ui], [S_int])
             self.S_int.append(S_int_num)
             # if a reference state is given, compute the Sr matrix
             if xr is not None:
                 Sr_int = self.integrator(fr_int, 0, delta_i, ui)
-                Sr_int_num = ca.Function('Sr_int_num', [self.delta, *self.u], [0.5*Sr_int])
+                Sr_int_num = ca.Function('Sr_int_num', [self.delta, *self.u], [Sr_int])
                 self.Sr_int.append(Sr_int_num)
             
         # Debug the matrix S_int (DEBUG)
@@ -645,7 +702,7 @@ class SwiLin:
             return S, Sr
         
         # Compute S matrix
-        S = 0.5 * S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
+        S = S_int + ca.mtimes([ca.transpose(phi_i), S_prev, phi_i])
         
         return S    
     
@@ -752,13 +809,14 @@ class SwiLin:
             
         return G
         
-    def cost_function(self, R, x0):
+    def cost_function(self, R=None, x0=None, symbolic=False):
         """
         Computes the cost function.
         
         Args:
         R (np.array): The weight matrix.
-        x0 (np.array): The initial state.
+        x0 (np.array): The initial state (numeric or symbolic).
+        symbolic (bool): If True, use symbolic x0 as a parameter in the function.
         xf (np.array): The final state.
         E (np.array): The weight matrix for the terminal state.
         
@@ -767,8 +825,17 @@ class SwiLin:
         
         """
         # Compute the cost function
-        x0 = np.reshape(x0, (-1, 1))
-        J = 0.5 * np.transpose(x0) @ self.S[0] @ x0
+        if symbolic and self.x0_sym is not None:
+            # Use symbolic x0 and augment with 1
+            x0_use = ca.vertcat(self.x0_sym, 1)
+        elif x0 is not None:
+            # Use numeric x0 and augment with 1
+            x0_use = np.append(x0, 1)
+            x0_use = np.reshape(x0_use, (-1, 1))
+        else:
+            raise ValueError("Either provide x0 or set symbolic=True with x0_sym initialized")
+            
+        J = 0.5 * ca.transpose(x0_use) @ self.S[0] @ x0_use
         if self.n_inputs > 0:
             J += self.G_matrix(R)
             
@@ -790,11 +857,18 @@ class SwiLin:
         # print(f"Phase duration: {type(self.delta)}")
         # input("Press Enter to continue...")
         
-        if self.n_inputs == 0:
-            cost = ca.Function('cost', [*self.delta], [J])
+        # Include x0 as a parameter if symbolic
+        if symbolic and self.x0_sym is not None:
+            if self.n_inputs == 0:
+                cost = ca.Function('cost', [self.x0_sym, *self.delta], [J])
+            else:
+                cost = ca.Function('cost', [self.x0_sym, *self.u, *self.delta], [J])
         else:
-            # print(*self.u, *self.delta)
-            cost = ca.Function('cost', [*self.u, *self.delta], [J])
+            if self.n_inputs == 0:
+                cost = ca.Function('cost', [*self.delta], [J])
+            else:
+                # print(*self.u, *self.delta)
+                cost = ca.Function('cost', [*self.u, *self.delta], [J])
             
         # print(f"Cost function: {ca.evalf(J)}")
         
@@ -865,7 +939,11 @@ class SwiLin:
                 C_i = self.C[i]
                 d_delta[i] = x_i_plus_1.T @ C_i @ x_i_plus_1
             
-        return ca.Function('grad', [*self.delta], [d_delta])
+        # Include x0 as a parameter in the gradient function
+        if self.x0_sym is not None:
+            return ca.Function('grad', [self.x0_sym, *self.delta], [d_delta])
+        else:
+            return ca.Function('grad', [*self.delta], [d_delta])
     
     def hessian_cost_function(self):
         """
@@ -917,7 +995,11 @@ class SwiLin:
                     
                     H[i, l] = 2 * ca.transpose(x_i_plus_1) @ C_i @ Phi @ A_l_aug @ x_l_plus_1
                     
-        return ca.Function('hessian', [*self.delta], [H])
+        # Include x0 as a parameter in the Hessian function
+        if self.x0_sym is not None:
+            return ca.Function('hessian', [self.x0_sym, *self.delta], [H])
+        else:
+            return ca.Function('hessian', [*self.delta], [H])
     
     def precompute_matrices(self, x0, Q, R, E, xr=None) -> None:
         """
@@ -937,9 +1019,9 @@ class SwiLin:
         for i in range(self.n_phases):
             # Compute the matrix exponential properties
             if self.auto:
-                Ei, Li = self.mat_exp_prop(i, Q, R)
+                Ei, Li = self.mat_exp_prop(i, Q)
             else:
-                Ei, phi_f_i, Hi, Li, Mi, Ri = self.mat_exp_prop(i, Q, R)
+                Ei, phi_f_i, Hi, Li, Mi, Ri = self.mat_exp_prop(i, Q)
                 self.phi_f.append(phi_f_i)
                 self.forced_evol.append(ca.Function('forced_evol', [self.u[i], self.delta[i]], [phi_f_i]) )
                 self.H.append(Hi)
@@ -954,12 +1036,9 @@ class SwiLin:
         
             if self.n_inputs > 0:
                 # Compute the D matrix
-                D = self.D_matrix(i, Q_)
-                self.D.append(D)
-            
-                # Compute the G matrix
-                G = self.G_matrix(R)
-                self.G.append(G)
+                # D = self.D_matrix(i, Q_)
+                # self.D.append(D)
+                pass
         
         # Initialize the S matrix with the terminal cost (if needed)
         self.S.append(E_)
@@ -987,20 +1066,22 @@ class SwiLin:
         #     self.S_num.insert(0, S_num)
         
         # Compute the C and N matrices
-        for i in range(self.n_phases):
-            C = self.C_matrix(i, Q_)
-            self.C.append(C)
-            if self.n_inputs > 0:
-                N = self.N_matrix(i)
-                self.N.append(N)
+        # for i in range(self.n_phases):
+        #     C = self.C_matrix(i, Q_)
+        #     self.C.append(C)
+        #     if self.n_inputs > 0:
+        #         N = self.N_matrix(i)
+        #         self.N.append(N)
                 
         # Propagate the state using the computed matrices.
-        self._propagate_state(x0)
-        
-        # Compute Hessian of the cost function (only for the autonomous case)
+        # For gradient and Hessian, use symbolic x0
         if self.auto:
+            self.propagate_state(x0, symbolic=True)
+            self.cost = self.cost_function(symbolic=True)
             self.grad = self.grad_cost_function()
             self.hessian = self.hessian_cost_function()
+        else:
+            self.propagate_state(x0, symbolic=False)
        
     def state_extraction(self, delta_opt, *args):
         """

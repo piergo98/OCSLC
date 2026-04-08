@@ -97,7 +97,7 @@ class SwitchedLinearMPC(SwiLin):
                 self.lb_opt_var[i] = durations[i//self.shift]
                 self.ub_opt_var[i] = durations[i//self.shift]
         else:
-            self.lb_opt_var[self.shift-1::self.shift] = 0 #1e-3
+            self.lb_opt_var[self.shift-1::self.shift] = 1e-8
             self.ub_opt_var[self.shift-1::self.shift] = time_horizon/10
         
         # Initialize cost and constraints
@@ -338,9 +338,7 @@ class SwitchedLinearMPC(SwiLin):
         '''
         This method sets the cost function for the optimization problem using the single shooting approach.
         '''
-        x0_aug = np.append(x0, 1)
-        
-        cost = self.cost_function(R, x0_aug)
+        cost = self.cost_function(R, x0)
                 
         if self.n_inputs == 0:
             self.cost = cost(*self.deltas)
@@ -359,25 +357,19 @@ class SwitchedLinearMPC(SwiLin):
             # Get variables
             x_i = self.states[i]
             delta_i = self.deltas[i]
-            Li = ca.Function('Li', [self.delta[i]], [self.L[i]])
+            Li = ca.Function('L' + str(i), [self.delta[i]], [self.L[i]])
             if self.n_inputs == 0:
                 if self.propagation == 'exp':
                     # Compute ith integral of the objective function using matrix exponential Van Loan method
-                    if reference is not None:
-                        L += 0.5 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
-                    else:
-                        L += 0.5 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
+                    L += 0.5 * ca.transpose(x_i) @ Li(delta_i) @ (x_i)
                 elif self.propagation == 'int':
-                    if reference is not None:
-                        L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i)) * delta_i
-                    else:
-                        L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i)) * delta_i
+                    L += 0.5 * (ca.transpose(x_i) @ Q @ (x_i)) * delta_i
                 else:
                     raise ValueError("Invalid propagation method.")
             else:
                 u_i = self.inputs[i]
-                Mi = ca.Function('Mi', [self.delta[i]], [self.M[i]])
-                Ri = ca.Function('Ri', [self.delta[i]], [self.R[i]])
+                Mi = ca.Function('M' + str(i), [self.delta[i]], [self.M[i]])
+                Ri = ca.Function('R' + str(i), [self.delta[i]], [self.R[i]])
                 if self.propagation == 'exp':
                     if self.hybrid:
                         if reference is not None:
@@ -386,7 +378,7 @@ class SwitchedLinearMPC(SwiLin):
                     else:
                         # Compute ith integral of the objective function using matrix exponential Van Loan method
                         L += 0.5 * (ca.transpose(x_i) @ Li(delta_i) @ (x_i) + 2*ca.transpose(x_i) @ Mi(delta_i) @ u_i 
-                                + ca.transpose(u_i) @ Ri(delta_i) @ u_i + ca.transpose(u_i) @ R*delta_i @ u_i)
+                                + ca.transpose(u_i) @ (Ri(delta_i) + R*delta_i) @ u_i)
                     
                 elif self.propagation == 'int':
                     if self.hybrid:
@@ -402,12 +394,12 @@ class SwitchedLinearMPC(SwiLin):
         
         
         # Add a log barrier to avoid too small phase durations
-        for delta in self.deltas:
-            L -= 1e-7 * ca.log(delta)
+        # for delta in self.deltas:
+        #     L -= 1e-7 * ca.log(delta)
         
         self.cost = L
 
-    def set_cost_function(self, Q, R, x0, E=None, reference=None):
+    def set_cost_function(self, Q, R=None, x0=None, E=None, reference=None):
         '''
         This method sets the cost function for the optimization problem.
         '''
@@ -535,24 +527,23 @@ class SwitchedLinearMPC(SwiLin):
         
         if solver == 'ipopt':        
             opts = {
-                'expand': True,
-                'ipopt.max_iter': max_iter,
-                # 'ipopt.grad_f_constant': 'yes',
-                # 'ipopt.jac_c_constant': 'yes',
-                # 'ipopt.jac_d_constant': 'yes',
-                'ipopt.hessian_constant': hessian_constant,
-                # 'ipopt.gradient_approximation': 'finite-difference-values',
-                # 'ipopt.hessian_approximation': 'limited-memory', 
-                # 'ipopt.hsllib': "/usr/local/libhsl.so",
-                # 'ipopt.linear_solver': 'mumps',
-                # 'ipopt.mu_strategy': 'adaptive',
-                # 'ipopt.adaptive_mu_globalization': 'kkt-error',
-                'ipopt.tol': tol,
-                'ipopt.acceptable_tol': acceptable_tol,
-                'ipopt.print_level': print_level,
+                'expand': False,
                 'print_time': print_time,
                 'verbose': verbose,
-                # 'ipopt.warm_start_init_point': 'yes',
+                'ipopt' : {
+                    'max_iter': max_iter,
+                    'hessian_constant': hessian_constant,
+                    'tol': tol,
+                    'acceptable_tol': acceptable_tol,
+                    'print_level': print_level,
+                    "hsllib": "/home/pietro/ThirdParty-HSL/coinhsl-2024.05.15/install/lib/x86_64-linux-gnu/libcoinhsl.so",
+                    "linear_solver": "ma27",
+                    # "warm_start_init_point": "yes",
+                    # "warm_start_bound_push": 1e-6,
+                    # "warm_start_bound_frac": 1e-6,
+                    # 'mu_strategy': 'adaptive',
+                    
+                }
             }
                 
         elif solver == 'sqpmethod':
@@ -588,6 +579,7 @@ class SwitchedLinearMPC(SwiLin):
             'ubx': self.ub_opt_var.tolist(),
             'lbg': lbg,
             'ubg': ubg,
+            
         }
         
         # Add parameter value for initial state if multiple shooting is enabled
@@ -679,3 +671,21 @@ class SwitchedLinearMPC(SwiLin):
         )
         
         return self.solve(x0=x0)
+    
+    @staticmethod
+    def check_duplicate_symbols(v, name):
+        elems = ca.vertsplit(v)
+        seen = {}
+        dups = []
+        for i, e in enumerate(elems):
+            s = str(e)
+            if s in seen:
+                dups.append((s, seen[s], i))
+            else:
+                seen[s] = i
+        if dups:
+            print(f"Duplicate symbols in {name}:")
+            for s, i0, i1 in dups:
+                print(f"  {s} at positions {i0} and {i1}")
+        else:
+            print(f"No duplicates detected in {name}")
