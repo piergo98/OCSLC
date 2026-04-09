@@ -45,8 +45,10 @@ R = 0.01 * np.eye(N_INPUTS)
 P = np.array(solve_continuous_are(A, B, Q, R))
 
 # Bounds (in shifted coordinates)
-STATES_LB = np.array([-15.0, -10.0, -0.2, -2.0])
-STATES_UB = np.array([ 10.0,  10.0,  0.2,  2.0])
+STATES_LB = np.array([-15.0, -10.0, -1.0, -2.0])
+STATES_UB = np.array([ 10.0,  10.0,  1.0,  2.0])
+CONTROL_LB = np.array([-10.0])
+CONTROL_UB = np.array([10.0])
 
 
 def _build_and_solve(args, inspect):
@@ -76,7 +78,7 @@ def _build_and_solve(args, inspect):
     precompute_time = time.time() - start
     start = time.time()
 
-    swi_lin_mpc.set_bounds(-50, 50, STATES_LB, STATES_UB)
+    swi_lin_mpc.set_bounds(CONTROL_LB, CONTROL_UB, STATES_LB, STATES_UB)
 
     if swi_lin_mpc.multiple_shooting:
         swi_lin_mpc.multiple_shooting_constraints()
