@@ -525,27 +525,42 @@ class SwitchedLinearMPC(SwiLin):
         if self.multiple_shooting:
             problem['p'] = self.x0_param
         
-        if solver == 'ipopt':        
-            opts = {
-                'expand': False,
-                'print_time': print_time,
-                'verbose': verbose,
-                'ipopt' : {
+        if solver == 'ipopt':
+            ipopt_opts = {
                     'max_iter': max_iter,
                     'hessian_constant': hessian_constant,
                     'tol': tol,
                     'acceptable_tol': acceptable_tol,
                     'print_level': print_level,
-                    "hsllib": "/home/pietro/ThirdParty-HSL/coinhsl-2024.05.15/install/lib/x86_64-linux-gnu/libcoinhsl.so",
-                    "linear_solver": "ma27",
                     # "warm_start_init_point": "yes",
                     # "warm_start_bound_push": 1e-6,
                     # "warm_start_bound_frac": 1e-6,
                     # 'mu_strategy': 'adaptive',
-                    
-                }
             }
-                
+
+            # Try to use HSL (ma27) for better performance, fall back to MUMPS
+            import ctypes
+            _hsl_available = False
+            for _libname in ['libcoinhsl.so', 'libhsl.so']:
+                try:
+                    ctypes.CDLL(_libname)
+                    _hsl_available = True
+                    break
+                except OSError:
+                    pass
+            if _hsl_available:
+                ipopt_opts['linear_solver'] = 'ma27'
+                print("Using HSL (ma27) linear solver.")
+            else:
+                print("HSL not available, using MUMPS linear solver.")
+
+            opts = {
+                'expand': False,
+                'print_time': print_time,
+                'verbose': verbose,
+                'ipopt': ipopt_opts,
+            }
+
         elif solver == 'sqpmethod':
             opts = {
                 'qpsol': 'qpoases', 
