@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from ocslc.corn import print_corn; print_corn()
 """
 Advanced Closed-Loop MPC Example with Optimizable Dwell Times
 

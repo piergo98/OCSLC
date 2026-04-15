@@ -1,3 +1,4 @@
+from ocslc.corn import print_corn; print_corn()
 import time
 
 import casadi as ca
