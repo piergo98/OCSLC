@@ -1,3 +1,4 @@
+import os
 import time
 
 import casadi as ca
@@ -5,8 +6,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import solve_continuous_are
 
+from ocslc.utils.disp import (
+    init_matplotlib, plot_comparison_dashboard,
+    plot_optimal_cost, plot_computational_cost,
+    plot_input_standalone, plot_states_standalone,
+)
 from ocslc.switched_linear_mpc import SwitchedLinearMPC
 
+RESULTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', 'cartpole')
+
+init_matplotlib()
 
 # Cart-pole parameters
 M = 1.0    # cart mass [kg]
@@ -122,7 +131,13 @@ def _build_and_solve(args, inspect):
     label = "Uniform" if inspect else "Non-uniform"
     print(f"[{label}, N={n_steps}] precompute={precompute_time:.3f}s  setup={setup_time:.3f}s  solve={solving_time:.3f}s")
 
-    return swi_lin_mpc, swi_lin_mpc.opt_cost, states_opt, inputs_opt, deltas_opt
+    timing = {
+        'precompute': precompute_time,
+        'setup': setup_time,
+        'solve': solving_time,
+        'total': precompute_time + setup_time + solving_time,
+    }
+    return swi_lin_mpc, swi_lin_mpc.opt_cost, states_opt, inputs_opt, deltas_opt, timing
 
 
 def test_cartpole_non_uniform(args):
@@ -132,95 +147,6 @@ def test_cartpole_non_uniform(args):
 def test_cartpole_uniform(args):
     return _build_and_solve(args, inspect=True)
 
-
-def plot_comparison(non_uniform_solution, uniform_solutions, n_steps_list, plot_mode='display'):
-    _, nu_cost, nu_states, nu_inputs, nu_deltas = non_uniform_solution
-
-    nu_times = np.concatenate([[0], np.cumsum(nu_deltas)])
-    nu_states_array = np.array(nu_states).reshape(-1, N_STATES)
-    nu_inputs_array = np.array(nu_inputs).reshape(-1, N_INPUTS)
-
-    state_labels = ['x (cart pos)', r'$\dot{x}$ (cart vel)', r'$\theta$ (angle)', r'$\dot{\theta}$ (ang vel)']
-
-    total_plots = 1 + N_STATES + 1 + 1  # cost + states + input + time distribution
-    ncols = 2
-    nrows = int(np.ceil(total_plots / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(16, 4 * nrows))
-    axes = np.array(axes).reshape(-1)
-    axis_idx = 0
-
-    # Select a few uniform solutions for trajectory comparison
-    selected_indices = []
-    if len(uniform_solutions) > 0:
-        selected_indices = [0, len(uniform_solutions) // 3, 2 * len(uniform_solutions) // 3, -1]
-    colors = plt.cm.Blues(np.linspace(0.4, 0.9, max(1, len(selected_indices))))
-
-    # Cost comparison
-    ax = axes[axis_idx]; axis_idx += 1
-    if len(uniform_solutions) > 0:
-        costs = [sol[1].item() for sol in uniform_solutions]
-        ax.plot(n_steps_list, costs, 'o-', label='Uniform discretization', linewidth=2, markersize=6)
-    ax.axhline(y=nu_cost.item(), color='r', linestyle='--', linewidth=2, label='Non-uniform (optimized)')
-    ax.set_xlabel('Number of steps')
-    ax.set_ylabel('Optimal cost')
-    ax.set_title('Cost Comparison')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    # State trajectories
-    for si in range(N_STATES):
-        ax = axes[axis_idx]; axis_idx += 1
-        ax.plot(nu_times, nu_states_array[:, si], 'r-', linewidth=2.5, label='Non-uniform', zorder=10)
-        for idx, color in zip(selected_indices, colors):
-            if idx < len(uniform_solutions):
-                _, _, states, _, deltas = uniform_solutions[idx]
-                times = np.concatenate([[0], np.cumsum(deltas)])
-                states_array = np.array(states).reshape(-1, N_STATES)
-                ax.plot(times, states_array[:, si], '--', color=color, linewidth=1.5,
-                        label=f'Uniform (N={n_steps_list[idx]})', alpha=0.8)
-        ax.set_xlabel('Time [s]')
-        ax.set_ylabel(state_labels[si])
-        ax.set_title(f'State: {state_labels[si]}')
-        ax.legend(fontsize=9)
-        ax.grid(True, alpha=0.3)
-
-    # Control input
-    ax = axes[axis_idx]; axis_idx += 1
-    ax.step(nu_times[:-1], nu_inputs_array[:, 0], where='post', linewidth=2.5, color='r', label='Non-uniform')
-    for idx, color in zip(selected_indices, colors):
-        if idx < len(uniform_solutions):
-            _, _, _, inputs, deltas = uniform_solutions[idx]
-            times = np.concatenate([[0], np.cumsum(deltas)])
-            inputs_array = np.array(inputs).reshape(-1, N_INPUTS)
-            ax.step(times[:-1], inputs_array[:, 0], where='post', linestyle='--', color=color,
-                    linewidth=1.5, alpha=0.8, label=f'Uniform (N={n_steps_list[idx]})')
-    ax.set_xlabel('Time [s]')
-    ax.set_ylabel('Force [N]')
-    ax.set_title('Control Input')
-    ax.legend(fontsize=9)
-    ax.grid(True, alpha=0.3)
-
-    # Time distribution
-    ax = axes[axis_idx]; axis_idx += 1
-    ax.bar(range(len(nu_deltas)), nu_deltas, color='red', alpha=0.7, label='Non-uniform')
-    if len(uniform_solutions) > 0:
-        ax.axhline(y=TIME_HORIZON / n_steps_list[-1], color='steelblue', linestyle='--',
-                    linewidth=2, label=f'Uniform (T/N)')
-    ax.set_xlabel('Phase index')
-    ax.set_ylabel('Phase duration [s]')
-    ax.set_title('Time Distribution')
-    ax.legend()
-    ax.grid(True, alpha=0.3, axis='y')
-
-    # Hide unused axes
-    for idx in range(axis_idx, len(axes)):
-        axes[idx].axis('off')
-
-    plt.tight_layout()
-    if plot_mode == 'save':
-        plt.savefig('cartpole_comparison.png', dpi=300, bbox_inches='tight')
-    elif plot_mode == 'display':
-        plt.show()
 
 
 if __name__ == '__main__':
@@ -250,41 +176,89 @@ if __name__ == '__main__':
     if args.hybrid in ('False', 'false', '0'):
         args.hybrid = False
 
-    # Non-uniform (optimized phase durations)
-    non_uniform_N = args.n_steps
-    non_uniform_solution = test_cartpole_non_uniform(args)
+    # Non-uniform (optimized phase durations) for a range of N
+    non_uniform_solutions = []
+    non_uniform_n_steps_list = list(range(20, 70, 10))
+    for n_steps in non_uniform_n_steps_list:
+        args.n_steps = n_steps
+        solution = test_cartpole_non_uniform(args)
+        non_uniform_solutions.append(solution)
 
-    # Plot the non-uniform solution (states, input, phase markers)
-    mpc, _, states_opt, inputs_opt, deltas_opt = non_uniform_solution
-    if mpc.multiple_shooting:
-        mpc.plot_optimal_solution(deltas_opt, inputs_opt, states_opt)
-    else:
-        mpc.plot_optimal_solution(deltas_opt, inputs_opt)
+    # Reference non-uniform solution (N=40) for trajectory plots
+    ref_idx = non_uniform_n_steps_list.index(40)
+    non_uniform_ref = non_uniform_solutions[ref_idx]
 
     # Uniform (fixed phase durations) for a range of N
     uniform_solutions = []
-    n_steps_list = []
-    for n_steps in range(20, 100, 10):
+    uniform_n_steps_list = list(range(20, 100, 10))
+    for n_steps in uniform_n_steps_list:
         args.n_steps = n_steps
         solution = test_cartpole_uniform(args)
         uniform_solutions.append(solution)
-        n_steps_list.append(n_steps)
 
     # Summary
-    non_uniform_opt_cost = non_uniform_solution[1]
-    print("\n" + "="*50)
+    nu_ref_cost = non_uniform_ref[1].item()
+    print("\n" + "="*60)
     print("Results Summary")
-    print("="*50)
-    print(f"Non-uniform optimal cost (N={non_uniform_N}): {non_uniform_opt_cost.item():.6f}")
-    print("="*50)
-    print(f"{'N Steps':<15} {'Optimal Cost':<15} {'Difference %':<15}")
-    print("-"*50)
-    for n_steps, sol in zip(n_steps_list, uniform_solutions):
+    print("="*60)
+    for n_steps, sol in zip(non_uniform_n_steps_list, non_uniform_solutions):
+        print(f"Non-uniform (N={n_steps}): cost={sol[1].item():.6f}")
+    print("="*60)
+    print(f"{'N Steps':<15} {'Uniform Cost':<15} {'vs Non-uniform N=40':<20}")
+    print("-"*60)
+    for n_steps, sol in zip(uniform_n_steps_list, uniform_solutions):
         cost = sol[1].item()
-        diff_percent = 100 * (cost - non_uniform_opt_cost.item()) / (non_uniform_opt_cost.item() + 1e-8)
+        diff_percent = 100 * (cost - nu_ref_cost) / (nu_ref_cost + 1e-8)
         print(f"{n_steps:<15} {cost:<15.6f} {diff_percent:+.3f}%")
-    print("="*50 + "\n")
+    print("="*60 + "\n")
 
-    # Plot comparison
-    plot_comparison(non_uniform_solution, uniform_solutions, n_steps_list, plot_mode=args.plot)
+    state_labels = [r'$x$', r'$\dot{x}$', r'$\theta$', r'$\dot{\theta}$']
+    input_labels = [r'$F$ [N]']
+
+    fig = plot_comparison_dashboard(
+        non_uniform_ref, uniform_solutions, uniform_n_steps_list,
+        n_states=N_STATES, n_inputs=N_INPUTS,
+        state_labels=state_labels,
+        input_labels=input_labels,
+        states_lb=STATES_LB, states_ub=STATES_UB,
+        non_uniform_solutions=non_uniform_solutions,
+        non_uniform_n_steps_list=non_uniform_n_steps_list,
+    )
+    if args.plot == 'save':
+        os.makedirs(RESULTS_DIR, exist_ok=True)
+        fig.savefig(os.path.join(RESULTS_DIR, 'dashboard.pdf'), bbox_inches='tight')
+
+        fig_cost = plot_optimal_cost(
+            non_uniform_solutions, non_uniform_n_steps_list,
+            uniform_solutions, uniform_n_steps_list,
+        )
+        fig_cost.savefig(os.path.join(RESULTS_DIR, 'optimal_cost.pdf'), bbox_inches='tight')
+
+        fig_comp = plot_computational_cost(
+            non_uniform_solutions, non_uniform_n_steps_list,
+            uniform_solutions, uniform_n_steps_list,
+        )
+        fig_comp.savefig(os.path.join(RESULTS_DIR, 'computational_cost.pdf'), bbox_inches='tight')
+
+        fig_input = plot_input_standalone(
+            non_uniform_ref, uniform_solutions, uniform_n_steps_list,
+            n_inputs=N_INPUTS, input_labels=input_labels,
+        )
+        fig_input.savefig(os.path.join(RESULTS_DIR, 'input.pdf'), bbox_inches='tight')
+
+        fig_input_zoom = plot_input_standalone(
+            non_uniform_ref, uniform_solutions, uniform_n_steps_list,
+            n_inputs=N_INPUTS, input_labels=input_labels,
+            xlim=(0.0, 1.0),
+        )
+        fig_input_zoom.savefig(os.path.join(RESULTS_DIR, 'input_zoom.pdf'), bbox_inches='tight')
+
+        fig_states = plot_states_standalone(
+            non_uniform_ref,
+            n_states=N_STATES, state_labels=state_labels,
+            states_lb=STATES_LB, states_ub=STATES_UB,
+        )
+        fig_states.savefig(os.path.join(RESULTS_DIR, 'states.pdf'), bbox_inches='tight')
+    elif args.plot == 'display':
+        plt.show()
     print("All tests passed!")
