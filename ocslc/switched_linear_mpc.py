@@ -394,8 +394,8 @@ class SwitchedLinearMPC(SwiLin):
         
         
         # Add a log barrier to avoid too small phase durations
-        for delta in self.deltas:
-            L -= 1e-7 * ca.log(delta)
+        # for delta in self.deltas:
+        #     L -= 1e-7 * ca.log(delta)
         
         self.cost = L
 
@@ -549,6 +549,7 @@ class SwitchedLinearMPC(SwiLin):
                 except OSError:
                     pass
             if _hsl_available:
+                ipopt_opts['hsllib'] = _libname
                 ipopt_opts['linear_solver'] = 'ma27'
                 print("Using HSL (ma27) linear solver.")
             else:

@@ -62,7 +62,7 @@ P = np.array(solve_continuous_are(A, B, Q, R))
 
 # Bounds (in shifted coordinates)
 STATES_LB = np.array([-100.0, -100.0, -100.0])
-STATES_UB = np.array([ 100.0,  100.0,  100.0])
+STATES_UB = np.array([ 0.2, 0.2, 0.2])
 CONTROL_LB = np.array([-10.0])
 CONTROL_UB = np.array([10.0])
 
