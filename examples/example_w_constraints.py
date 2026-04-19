@@ -185,7 +185,7 @@ if __name__ == '__main__':
 
     # Non-uniform (optimized phase durations) for a range of N
     non_uniform_solutions = []
-    non_uniform_n_steps_list = list(range(20, 70, 10))
+    non_uniform_n_steps_list = list(range(20, 100, 10))
     for n_steps in non_uniform_n_steps_list:
         args.n_steps = n_steps
         solution = test_cartpole_non_uniform(args)

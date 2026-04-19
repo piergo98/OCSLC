@@ -463,3 +463,157 @@ def plot_states_standalone(
             ax.set_xlabel('Time [s]')
             ax.set_ylabel(state_labels[si])
     return fig
+
+
+def plot_methods_grid(
+    solutions,
+    method_labels,
+    *,
+    n_states,
+    n_inputs,
+    state_labels=None,
+    input_labels=None,
+    figsize=None,
+    reference_solution=None,
+    reference_label='Reference ($N=200$)',
+):
+    """Plot a 2x2 grid of control inputs, one subplot per method.
+
+    Parameters
+    ----------
+    solutions : list of tuple
+        Four solutions ``(_, cost, states, inputs, deltas, timing)``.
+    method_labels : list of str
+        Labels for each of the four methods (e.g. ``['SS int', 'MS int', ...]``).
+    n_states, n_inputs : int
+        Dimensions of the system.
+    state_labels : list of str, optional
+        Per-state labels.  Defaults to ``$x_i$``.
+    input_labels : list of str, optional
+        Per-input labels.  Defaults to ``$u_i$``.
+    figsize : tuple, optional
+        Figure size.  Defaults to ``(10, 7)``.
+    reference_solution : tuple, optional
+        A high-density reference solution ``(_, cost, states, inputs, deltas, timing)``
+        to overlay on each subplot.
+    reference_label : str, optional
+        Legend label for the reference solution.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if state_labels is None:
+        state_labels = [rf'$x_{{{i+1}}}$' for i in range(n_states)]
+    if input_labels is None:
+        input_labels = [rf'$u_{{{i+1}}}$' for i in range(n_inputs)]
+    if figsize is None:
+        figsize = (10, 7)
+
+    colors = get_colors()
+
+    # Extract reference solution data
+    ref_times = None
+    ref_inputs_arr = None
+    if reference_solution is not None:
+        _, _, _, ref_inputs, ref_deltas, _ = reference_solution
+        ref_deltas = np.asarray(ref_deltas).flatten()
+        ref_times = np.concatenate([[0], np.cumsum(ref_deltas)])
+        ref_inputs_arr = np.array(ref_inputs).reshape(-1, n_inputs)
+
+    overrides = {
+        'xtick.labelsize': 18,
+        'ytick.labelsize': 18,
+        'axes.labelsize': 22,
+        'legend.fontsize': 14,
+        'axes.titlesize': 22,
+    }
+    old = {k: plt.rcParams[k] for k in overrides}
+    plt.rcParams.update(overrides)
+    try:
+        fig, axes = plt.subplots(2, 2, figsize=figsize, constrained_layout=True)
+
+        for idx, (sol, label) in enumerate(zip(solutions, method_labels)):
+            row, col = divmod(idx, 2)
+            ax = axes[row, col]
+            _, cost, _, inputs, deltas, _ = sol
+            deltas = np.asarray(deltas).flatten()
+            times = np.concatenate([[0], np.cumsum(deltas)])
+            inputs_arr = np.array(inputs).reshape(-1, n_inputs)
+
+            # Plot reference (behind)
+            if ref_times is not None:
+                for ki in range(n_inputs):
+                    plot_zoh_input(ax, ref_times, ref_inputs_arr[:, ki:ki+1],
+                                   phase_lines=False,
+                                   color='gray', alpha=0.5, linewidth=1.0,
+                                   label=reference_label if ki == 0 else None)
+
+            # Plot method's input
+            for ki in range(n_inputs):
+                plot_zoh_input(ax, times, inputs_arr[:, ki:ki+1],
+                               phase_lines=True,
+                               phase_line_kwargs={'alpha': 0.25},
+                               color=colors[idx % len(colors)],
+                               linewidth=1.5, label=input_labels[ki])
+            ax.grid(False)
+            ax.set_xlabel('Time [s]')
+            ax.set_ylabel('Input')
+            cost_val = float(np.asarray(cost).flat[0])
+            ax.set_title(rf'{label} ($J^*={cost_val:.4f}$)')
+            ax.legend()
+    finally:
+        plt.rcParams.update(old)
+
+    return fig
+
+
+def plot_methods_histograms(
+    solutions,
+    method_labels,
+    *,
+    figsize=None,
+    n_bins=20,
+):
+    """Plot a 2x2 grid of phase-duration histograms, one per method.
+
+    Each subplot shows the frequency distribution of phase durations:
+    x-axis is the duration, y-axis is the number of phases with that duration.
+
+    Parameters
+    ----------
+    solutions : list of tuple
+        Four solutions ``(_, cost, states, inputs, deltas, timing)``.
+    method_labels : list of str
+        Labels for each method.
+    figsize : tuple, optional
+        Figure size.  Defaults to ``(10, 7)``.
+    n_bins : int, optional
+        Number of histogram bins.  Defaults to 20.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    if figsize is None:
+        figsize = (10, 7)
+
+    colors = get_colors()
+
+    with _ieee_rc_context():
+        fig, axes = plt.subplots(2, 2, figsize=figsize, constrained_layout=True)
+
+        for idx, (sol, label) in enumerate(zip(solutions, method_labels)):
+            row, col = divmod(idx, 2)
+            ax = axes[row, col]
+            _, _, _, _, deltas, _ = sol
+            deltas = np.asarray(deltas).flatten()
+
+            ax.hist(deltas, bins=n_bins,
+                    color=colors[idx % len(colors)], alpha=0.7,
+                    edgecolor='white', linewidth=0.5)
+            ax.set_xlabel('Phase duration [s]')
+            ax.set_ylabel('Number of samples')
+            ax.set_title(label)
+
+    return fig

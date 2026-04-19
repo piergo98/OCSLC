@@ -285,13 +285,13 @@ class SwitchedLinearMPC(SwiLin):
             name=name,
         )]
         
-    def multiple_shooting_constraints(self, displacement=0, update=False):
+    def multiple_shooting_constraints(self, x0=None, displacement=0, update=False):
         '''
         This method creates the constraints for the multiple shooting approach.
         Uses x0_param as the parameter for the initial state.
-        
+
         Args:
-            x0: Deprecated - kept for backward compatibility but not used. 
+            x0: Deprecated - kept for backward compatibility but not used.
                 The initial state is now handled via the x0_param parameter in the NLP.
             displacement: Phase displacement for constraint ordering
             update: Whether to update existing constraints or create new ones
