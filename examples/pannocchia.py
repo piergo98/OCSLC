@@ -174,8 +174,9 @@ if __name__ == '__main__':
         solutions, method_labels,
         n_states=N_STATES, n_inputs=N_INPUTS,
         state_labels=state_labels,
-        input_labels=input_labels,
+        input_labels=[rf'Non-uniform ($N={args.n_steps}$)'],
         reference_solution=ref_solution,
+        reference_label=r'Uniform ($N=200$)',
     )
 
     fig_histograms = plot_methods_histograms(

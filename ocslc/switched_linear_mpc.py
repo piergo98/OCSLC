@@ -394,8 +394,8 @@ class SwitchedLinearMPC(SwiLin):
         
         
         # Add a log barrier to avoid too small phase durations
-        # for delta in self.deltas:
-        #     L -= 1e-7 * ca.log(delta)
+        for delta in self.deltas:
+            L -= 1e-7 * ca.log(delta)
         
         self.cost = L
 
