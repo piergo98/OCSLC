@@ -67,7 +67,7 @@ CONTROL_LB = np.array([-10.0])
 CONTROL_UB = np.array([10.0])
 
 
-def _build_and_solve(args, inspect):
+def _build_and_solve(args, inspect, *, warm_start=True):
     integrator = args.integrator
     multiple_shooting = args.shooting == "ms"
     hybrid = args.hybrid
@@ -101,23 +101,27 @@ def _build_and_solve(args, inspect):
 
     swi_lin_mpc.set_cost_function(Q, R, X0, P)
 
-    # LQR initial guess
+    # Initial guess: LQR rollout (warm start) or flat zeros (cold start).
     exp_dist = 1.0 ** np.arange(n_steps)
     phase_durations = exp_dist * TIME_HORIZON / np.sum(exp_dist)
 
-    K_lqr = np.linalg.inv(R + B.T @ P @ B) @ (B.T @ P @ A)
-    xk = X0.copy()
-    x_init = [xk.flatten()]
-    u_init = []
-    for i in range(n_steps):
-        uk = ca.DM(-K_lqr @ xk)
-        xk = swi_lin_mpc.autonomous_evol[i](
-            phase_durations[i]
-        ) @ xk + swi_lin_mpc.forced_evol[i](uk, phase_durations[i])
-        x_init.append(xk.full().flatten())
-        u_init.append(uk)
-    x_init = np.array(x_init).reshape((n_steps + 1, N_STATES))
-    u_init = np.array(u_init).reshape((n_steps, N_INPUTS))
+    if warm_start:
+        K_lqr = np.linalg.inv(R + B.T @ P @ B) @ (B.T @ P @ A)
+        xk = X0.copy()
+        x_init = [xk.flatten()]
+        u_init = []
+        for i in range(n_steps):
+            uk = ca.DM(-K_lqr @ xk)
+            xk = swi_lin_mpc.autonomous_evol[i](
+                phase_durations[i]
+            ) @ xk + swi_lin_mpc.forced_evol[i](uk, phase_durations[i])
+            x_init.append(xk.full().flatten())
+            u_init.append(uk)
+        x_init = np.array(x_init).reshape((n_steps + 1, N_STATES))
+        u_init = np.array(u_init).reshape((n_steps, N_INPUTS))
+    else:
+        x_init = np.tile(X0, (n_steps + 1, 1))
+        u_init = np.zeros((n_steps, N_INPUTS))
 
     swi_lin_mpc.set_initial_guess(
         X0,
